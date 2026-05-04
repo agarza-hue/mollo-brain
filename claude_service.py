@@ -1,4 +1,4 @@
-"""Claude como cerebro principal de Mollo — RAG + análisis + memoria."""
+"""Claude como cerebro principal de Mollo — RAG + análisis + memoria + prompt caching."""
 import anthropic
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
@@ -29,6 +29,62 @@ REGLAS DE ORO:
 - Si falta información crítica, pregunta específicamente
 """
 
+# System prompt como bloque con cache_control — se cachea en la primera llamada
+# y se reutiliza en las siguientes hasta 5 min de inactividad.
+_SYSTEM_CACHED = [
+    {
+        "type": "text",
+        "text": MOLLO_SYSTEM,
+        "cache_control": {"type": "ephemeral"},
+    }
+]
+
+
+def _build_messages(
+    pregunta: str,
+    doc_context: str,
+    memory_context: str,
+    business_context: str,
+    learnings_context: str,
+) -> list[dict]:
+    """
+    Construye el array de mensajes con cache_control estratégico:
+      - Bloque 1 (cached):  contexto de negocio + aprendizajes  → casi nunca cambia
+      - Bloque 2 (dynamic): memoria semántica + docs + pregunta → cambia cada turno
+    """
+    content = []
+
+    # ── Bloque estático cacheado ──────────────────────────────────────────────
+    static_parts = []
+    if business_context:
+        static_parts.append(f"CONTEXTO DEL NEGOCIO DE ADOLFO:\n{business_context}")
+    if learnings_context:
+        static_parts.append(f"APRENDIZAJES PREVIOS DE MOLLO:\n{learnings_context}")
+
+    if static_parts:
+        content.append({
+            "type": "text",
+            "text": "\n\n".join(static_parts),
+            "cache_control": {"type": "ephemeral"},
+        })
+
+    # ── Bloque dinámico (sin caché) ───────────────────────────────────────────
+    dynamic_parts = []
+    if memory_context:
+        dynamic_parts.append(f"CONVERSACIONES RECIENTES:\n{memory_context}")
+    if doc_context:
+        dynamic_parts.append(f"DOCUMENTOS RELEVANTES ENCONTRADOS:\n{doc_context}")
+    dynamic_parts.append(f"PREGUNTA DE ADOLFO: {pregunta}")
+
+    content.append({
+        "type": "text",
+        "text": "\n\n".join(dynamic_parts),
+    })
+
+    return [{"role": "user", "content": content}]
+
+
+# ── Respuesta completa ────────────────────────────────────────────────────────
 
 def chat_with_rag(
     pregunta: str,
@@ -37,40 +93,18 @@ def chat_with_rag(
     business_context: str = "",
     learnings_context: str = "",
 ) -> str:
-    """Genera respuesta de Mollo con contexto RAG + memoria + aprendizajes."""
-
-    user_message = _build_user_message(
-        pregunta, doc_context, memory_context, business_context, learnings_context
-    )
-
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=2048,
-        system=MOLLO_SYSTEM,
-        messages=[{"role": "user", "content": user_message}],
+        system=_SYSTEM_CACHED,
+        messages=_build_messages(
+            pregunta, doc_context, memory_context, business_context, learnings_context
+        ),
     )
     return response.content[0].text
 
 
-def _build_user_message(
-    pregunta: str,
-    doc_context: str,
-    memory_context: str,
-    business_context: str,
-    learnings_context: str,
-) -> str:
-    parts = []
-    if business_context:
-        parts.append(f"CONTEXTO DEL NEGOCIO DE ADOLFO:\n{business_context}")
-    if learnings_context:
-        parts.append(f"APRENDIZAJES PREVIOS DE MOLLO:\n{learnings_context}")
-    if memory_context:
-        parts.append(f"CONVERSACIONES RECIENTES:\n{memory_context}")
-    if doc_context:
-        parts.append(f"DOCUMENTOS RELEVANTES ENCONTRADOS:\n{doc_context}")
-    full = "\n\n".join(parts)
-    return f"{full}\n\nPREGUNTA DE ADOLFO: {pregunta}" if full else pregunta
-
+# ── Streaming ─────────────────────────────────────────────────────────────────
 
 async def stream_chat_with_rag(
     pregunta: str,
@@ -79,22 +113,21 @@ async def stream_chat_with_rag(
     business_context: str = "",
     learnings_context: str = "",
 ):
-    """Genera respuesta de Mollo en streaming, token a token."""
-    user_message = _build_user_message(
-        pregunta, doc_context, memory_context, business_context, learnings_context
-    )
     async with async_client.messages.stream(
         model=CLAUDE_MODEL,
         max_tokens=2048,
-        system=MOLLO_SYSTEM,
-        messages=[{"role": "user", "content": user_message}],
+        system=_SYSTEM_CACHED,
+        messages=_build_messages(
+            pregunta, doc_context, memory_context, business_context, learnings_context
+        ),
     ) as stream:
         async for text in stream.text_stream:
             yield text
 
 
+# ── Utilidades ────────────────────────────────────────────────────────────────
+
 def analyze_document(text: str, instruccion: str = "") -> str:
-    """Analiza un documento específico y extrae insights."""
     prompt = f"""Analiza el siguiente documento empresarial y extrae:
 1. Puntos clave y conclusiones principales
 2. Datos financieros o métricas relevantes (si existen)
@@ -109,14 +142,13 @@ DOCUMENTO:
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=2048,
-        system=MOLLO_SYSTEM,
+        system=_SYSTEM_CACHED,
         messages=[{"role": "user", "content": prompt}],
     )
     return response.content[0].text
 
 
 def extract_learning(question: str, answer: str) -> tuple[str, str]:
-    """Extrae tema e insight de una conversación para la memoria."""
     prompt = f"""De esta conversación, extrae en formato JSON:
 {{"tema": "tema principal en 3-5 palabras", "insight": "aprendizaje clave en 1 oración"}}
 
@@ -126,12 +158,12 @@ Respuesta: {answer[:300]}
 Responde SOLO con el JSON, sin texto adicional."""
 
     try:
+        import json
         response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=100,
             messages=[{"role": "user", "content": prompt}],
         )
-        import json
         data = json.loads(response.content[0].text.strip())
         return data.get("tema", "general"), data.get("insight", "")
     except Exception:
