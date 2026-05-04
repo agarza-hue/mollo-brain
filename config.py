@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY    = os.getenv("OPENAI_API_KEY")
@@ -12,9 +12,17 @@ QDRANT_MEMORY_COLLECTION = os.getenv("QDRANT_MEMORY_COLLECTION", "mollo_memoria"
 OLLAMA_HOST       = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 EMBED_MODEL       = os.getenv("EMBED_MODEL", "nomic-embed-text")
 CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
+OPENAI_MODEL_AUX  = os.getenv("OPENAI_MODEL_AUX", "gpt-4o-mini")
 DOCS_PATH         = os.getenv("DOCS_PATH", "/root/mollo_docs")
 MEMORY_FILE       = os.getenv("MEMORY_FILE", "/root/mollo_brain/mollo_memory.json")
 PORT              = int(os.getenv("PORT", 8002))
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+N8N_URL            = os.getenv("N8N_URL", "")
+N8N_WEBHOOK_SECRET = os.getenv("N8N_WEBHOOK_SECRET", "")
+BANXICO_TOKEN      = os.getenv("BANXICO_TOKEN", "")
+DROPBOX_APP_KEY      = os.getenv("DROPBOX_APP_KEY", "")
+DROPBOX_APP_SECRET   = os.getenv("DROPBOX_APP_SECRET", "")
+DROPBOX_REFRESH_TOKEN = os.getenv("DROPBOX_REFRESH_TOKEN", "")
 
 CATEGORIAS = [
     "financiero", "estrategia", "rrhh", "ventas",

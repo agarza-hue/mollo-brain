@@ -6,6 +6,7 @@ from qdrant_client.models import (
     FieldCondition, MatchValue
 )
 from config import QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION
+from chatgpt_importer import CHATGPT_COLLECTION
 
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
@@ -27,6 +28,10 @@ def ensure_collection():
 
 def ensure_memory_collection():
     _ensure(QDRANT_MEMORY_COLLECTION)
+
+
+def ensure_chatgpt_collection():
+    _ensure(CHATGPT_COLLECTION)
 
 
 # ── Memoria semántica ─────────────────────────────────────────────────────────
@@ -84,9 +89,30 @@ def delete_by_source(filename: str):
     )
 
 
+def search_chatgpt(query_vector: list[float], top_k: int = 4) -> list:
+    """Busca en el historial importado de ChatGPT."""
+    cols = [c.name for c in client.get_collections().collections]
+    if CHATGPT_COLLECTION not in cols:
+        return []
+    results = client.query_points(
+        collection_name=CHATGPT_COLLECTION,
+        query=query_vector,
+        limit=top_k,
+        with_payload=True,
+    )
+    return results.points
+
+
 def collection_stats() -> dict:
-    info = client.get_collection(QDRANT_COLLECTION)
+    info     = client.get_collection(QDRANT_COLLECTION)
+    mem_info = client.get_collection(QDRANT_MEMORY_COLLECTION)
+    cols     = [c.name for c in client.get_collections().collections]
+    chatgpt_count = 0
+    if CHATGPT_COLLECTION in cols:
+        chatgpt_count = client.get_collection(CHATGPT_COLLECTION).points_count
     return {
-        "total_vectores": info.points_count,
-        "status": info.status,
+        "total_vectores":     info.points_count,
+        "memoria_vectores":   mem_info.points_count,
+        "chatgpt_vectores":   chatgpt_count,
+        "status":             info.status,
     }

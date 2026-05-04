@@ -7,9 +7,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
-from qdrant_service import ensure_collection, ensure_memory_collection, collection_stats
+from qdrant_service import ensure_collection, ensure_memory_collection, ensure_chatgpt_collection, collection_stats
 from routers import documents, chat, memory, vps
 
 
@@ -17,6 +17,7 @@ from routers import documents, chat, memory, vps
 async def lifespan(app: FastAPI):
     ensure_collection()
     ensure_memory_collection()
+    ensure_chatgpt_collection()
     yield
 
 

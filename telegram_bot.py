@@ -2,15 +2,23 @@
 """Mollo Telegram Bot — conecta @mollo_adolfo_bot con Mollo Brain."""
 import asyncio
 import logging
+import os
+from pathlib import Path
 import httpx
 from telegram import Update
 from telegram.ext import Application, MessageHandler, CommandHandler, filters, ContextTypes
 from telegram.constants import ChatAction
 from telegram.error import BadRequest
+from dotenv import load_dotenv
 
-BOT_TOKEN = "8736838046:AAGgD4EH21nhbNvf7moEo8-u3swOjTs-nl4"
+load_dotenv()
+
+BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
 BRAIN_URL  = "http://localhost:8002"
-MAX_LEN    = 4000  # Telegram limita a 4096 chars por mensaje
+MAX_LEN    = 4000
+
+if not BOT_TOKEN:
+    raise RuntimeError("TELEGRAM_BOT_TOKEN no encontrado en .env")
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -20,7 +28,6 @@ log = logging.getLogger(__name__)
 
 
 def split_text(text: str, max_len: int = MAX_LEN) -> list[str]:
-    """Divide texto largo en bloques respetando párrafos."""
     if len(text) <= max_len:
         return [text]
     parts, current = [], []
@@ -34,19 +41,14 @@ def split_text(text: str, max_len: int = MAX_LEN) -> list[str]:
     return parts
 
 
-async def stream_from_brain(pregunta: str, session_id: str) -> str:
-    """Llama a /chat/stream y devuelve la respuesta completa."""
+async def call_brain(pregunta: str, session_id: str, modo: str | None = None) -> str:
+    payload: dict = {"pregunta": pregunta, "usar_memoria": True, "session_id": session_id}
+    if modo:
+        payload["modo"] = modo
+
     chunks = []
-    async with httpx.AsyncClient(timeout=120) as client:
-        async with client.stream(
-            "POST",
-            f"{BRAIN_URL}/chat/stream",
-            json={
-                "pregunta": pregunta,
-                "usar_memoria": True,
-                "session_id": session_id,
-            },
-        ) as r:
+    async with httpx.AsyncClient(timeout=180) as client:
+        async with client.stream("POST", f"{BRAIN_URL}/chat/stream", json=payload) as r:
             r.raise_for_status()
             async for chunk in r.aiter_text():
                 chunks.append(chunk)
@@ -55,8 +57,14 @@ async def stream_from_brain(pregunta: str, session_id: str) -> str:
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Hola, soy *Mollo* — tu asistente ejecutivo.\n\n"
-        "Escríbeme cualquier pregunta sobre finanzas, estrategia, operaciones o tu VPS.",
+        "Hola, soy *Mollo* — tu asistente ejecutivo personal.\n\n"
+        "Puedo responder preguntas, buscar en internet, monitorear tu VPS y ejecutar automatizaciones.\n\n"
+        "Comandos disponibles:\n"
+        "/vps — estado del servidor\n"
+        "/memory — resumen de memoria\n"
+        "/temas — memoria por temas especializados\n"
+        "/briefing — briefing ejecutivo del día\n"
+        "/agente <consulta> — forzar modo agente con herramientas",
         parse_mode="Markdown",
     )
 
@@ -66,8 +74,8 @@ async def cmd_memory(update: Update, context: ContextTypes.DEFAULT_TYPE):
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(f"{BRAIN_URL}/memory/")
             data = r.json()
-        convs   = len(data.get("conversaciones", []))
-        learns  = data.get("aprendizajes", [])
+        convs  = len(data.get("conversaciones", []))
+        learns = data.get("aprendizajes", [])
         text = f"*Memoria de Mollo*\n\nConversaciones: {convs}\nAprendizajes: {len(learns)}"
         if learns:
             text += "\n\n*Últimos aprendizajes:*"
@@ -98,16 +106,87 @@ async def cmd_vps(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"Error al obtener estado: {e}")
 
 
+async def cmd_briefing(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Genera un briefing ejecutivo del día."""
+    chat_id    = str(update.effective_chat.id)
+    session_id = f"telegram_{chat_id}"
+    msg = await update.message.reply_text("_📋 Preparando tu briefing…_", parse_mode="Markdown")
+    try:
+        respuesta = await call_brain(
+            "Genera mi briefing ejecutivo del día: estado del VPS, "
+            "tareas y proyectos pendientes de los que tengas registro, "
+            "y 3 prioridades estratégicas para hoy.",
+            session_id=session_id,
+            modo="agente",
+        )
+        partes = split_text(respuesta)
+        await msg.edit_text(partes[0])
+        for parte in partes[1:]:
+            await update.message.reply_text(parte)
+    except Exception as e:
+        await msg.edit_text(f"Error generando briefing: {e}")
+
+
+async def cmd_temas(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra el resumen de la memoria por temas especializados."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"{BRAIN_URL}/memory/topics")
+            data = r.json()
+
+        lines = ["*Memoria por Temas*\n"]
+        for key, info in data.items():
+            icono = "🧠" if info["tiene_memoria"] else "⚪"
+            conv = info["conversaciones_procesadas"]
+            lines.append(f"{icono} *{info['nombre']}* ({conv} convs)")
+            if info["tiene_memoria"]:
+                lines.append(f"_{info['resumen'][:120]}…_")
+                if info["pendientes"]:
+                    for p in info["pendientes"][:2]:
+                        lines.append(f"  ◦ {p}")
+            lines.append("")
+
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    except Exception as e:
+        await update.message.reply_text(f"Error al obtener temas: {e}")
+
+
+async def cmd_agente(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fuerza modo agente para la consulta — /agente <texto>"""
+    chat_id    = str(update.effective_chat.id)
+    session_id = f"telegram_{chat_id}"
+    pregunta   = " ".join(context.args) if context.args else ""
+
+    if not pregunta:
+        await update.message.reply_text("Uso: /agente <tu consulta>")
+        return
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    msg = await update.message.reply_text("_⚙️ Ejecutando agente…_", parse_mode="Markdown")
+    try:
+        respuesta = await call_brain(pregunta, session_id=session_id, modo="agente")
+        partes = split_text(respuesta)
+        try:
+            await msg.edit_text(partes[0])
+        except BadRequest:
+            await msg.delete()
+            await update.message.reply_text(partes[0])
+        for parte in partes[1:]:
+            await update.message.reply_text(parte)
+    except Exception as e:
+        await msg.edit_text(f"Error en agente: {e}")
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    pregunta  = update.message.text.strip()
-    chat_id   = str(update.effective_chat.id)
+    pregunta   = update.message.text.strip()
+    chat_id    = str(update.effective_chat.id)
     session_id = f"telegram_{chat_id}"
 
     await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
     status_msg = await update.message.reply_text("_✍️ pensando…_", parse_mode="Markdown")
 
     try:
-        respuesta = await stream_from_brain(pregunta, session_id)
+        respuesta = await call_brain(pregunta, session_id=session_id)
     except httpx.ConnectError:
         await status_msg.edit_text("⚠️ No puedo conectar con Mollo Brain. ¿Está corriendo en el VPS?")
         return
@@ -116,15 +195,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     partes = split_text(respuesta)
-
-    # Primera parte reemplaza el "pensando..."
     try:
         await status_msg.edit_text(partes[0])
     except BadRequest:
         await status_msg.delete()
         await update.message.reply_text(partes[0])
-
-    # Partes adicionales si el mensaje es muy largo
     for parte in partes[1:]:
         await update.message.reply_text(parte)
 
@@ -132,9 +207,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start",  cmd_start))
-    app.add_handler(CommandHandler("memory", cmd_memory))
-    app.add_handler(CommandHandler("vps",    cmd_vps))
+    app.add_handler(CommandHandler("start",    cmd_start))
+    app.add_handler(CommandHandler("memory",   cmd_memory))
+    app.add_handler(CommandHandler("vps",      cmd_vps))
+    app.add_handler(CommandHandler("briefing", cmd_briefing))
+    app.add_handler(CommandHandler("temas",    cmd_temas))
+    app.add_handler(CommandHandler("agente",   cmd_agente))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     log.info("Mollo Bot arrancado — esperando mensajes de Telegram")

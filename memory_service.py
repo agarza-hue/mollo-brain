@@ -1,4 +1,4 @@
-"""Memoria persistente de Mollo — guarda conversaciones y aprendizajes."""
+"""Memoria persistente de Mollo — conversaciones, aprendizajes, contexto negocio."""
 import json, uuid
 from datetime import datetime
 from pathlib import Path
@@ -23,18 +23,22 @@ def save_turn(
     session_id: str = "default",
     vector: list[float] | None = None,
 ):
+    from openai_service import summarize_response
+
+    summary = summarize_response(mollo_response)
+
     data = _load()
     entry = {
         "session_id": session_id,
         "fecha": datetime.now().isoformat(),
         "usuario": user_msg,
-        "mollo": mollo_response[:500],
+        "mollo_summary": summary,
     }
     data["conversaciones"].append(entry)
     data["conversaciones"] = data["conversaciones"][-200:]
     _save(data)
 
-    # Persistir en Qdrant para recuperación semántica futura
+    # Guardar respuesta completa en Qdrant para recuperación semántica
     if vector:
         try:
             from qdrant_service import upsert_memory_vector
@@ -43,7 +47,8 @@ def save_turn(
                 vector=vector,
                 payload={
                     "usuario": user_msg,
-                    "mollo": mollo_response[:500],
+                    "mollo": mollo_response,
+                    "mollo_summary": summary,
                     "fecha": entry["fecha"],
                     "session_id": session_id,
                 },
@@ -66,13 +71,12 @@ def update_business_context(key: str, value):
     data = _load()
     data["contexto_negocio"][key] = {
         "valor": value,
-        "actualizado": datetime.now().isoformat()
+        "actualizado": datetime.now().isoformat(),
     }
     _save(data)
 
 
 def get_recent_context(n: int = 10) -> str:
-    """Devuelve las últimas N conversaciones como contexto para el prompt."""
     data = _load()
     recent = data["conversaciones"][-n:]
     if not recent:
@@ -80,7 +84,7 @@ def get_recent_context(n: int = 10) -> str:
     lines = []
     for turn in recent:
         lines.append(f"Adolfo: {turn['usuario']}")
-        lines.append(f"Mollo: {turn['mollo']}")
+        lines.append(f"Mollo: {turn['mollo_summary']}")
     return "\n".join(lines)
 
 
@@ -93,29 +97,44 @@ def get_business_context() -> str:
     return "\n".join(lines)
 
 
-def get_semantic_context(query_vector: list[float], top_k: int = 6) -> str:
-    """Recupera conversaciones pasadas semánticamente relevantes para la pregunta actual."""
+def get_semantic_context(query_vector: list[float], top_k: int = 5) -> str:
     try:
-        from qdrant_service import search_memory
-        results = search_memory(query_vector, top_k=top_k)
-        if not results:
-            return get_recent_context(4)  # fallback a recientes si no hay memoria vectorial
-        lines = []
-        for r in results:
-            lines.append(f"Adolfo: {r.payload['usuario']}")
-            lines.append(f"Mollo: {r.payload['mollo']}")
-        return "\n".join(lines)
+        from qdrant_service import search_memory, search_chatgpt
+        parts = []
+
+        # Conversaciones previas con Mollo
+        mollo_results = search_memory(query_vector, top_k=top_k)
+        if mollo_results:
+            lines = []
+            for r in mollo_results:
+                lines.append(f"Adolfo: {r.payload['usuario']}")
+                summary = r.payload.get("mollo_summary") or r.payload.get("mollo", "")[:300]
+                lines.append(f"Mollo: {summary}")
+            parts.append("--- Conversaciones con Mollo ---\n" + "\n".join(lines))
+
+        # Historial de ChatGPT (si está importado)
+        gpt_results = search_chatgpt(query_vector, top_k=3)
+        if gpt_results:
+            lines = []
+            for r in gpt_results:
+                title = r.payload.get("title", "")
+                fecha = r.payload.get("fecha", "")
+                text  = r.payload.get("text", "")[:600]
+                lines.append(f"[ChatGPT — {title} ({fecha})]\n{text}")
+            parts.append("--- Historial de ChatGPT ---\n" + "\n\n".join(lines))
+
+        if parts:
+            return "\n\n".join(parts)
+        return get_recent_context(4)
     except Exception:
         return get_recent_context(4)
 
 
 def get_learnings_context(max_items: int = 20) -> str:
-    """Devuelve aprendizajes deduplicados por tema, listos para inyectar al prompt."""
     data = _load()
     learnings = data.get("aprendizajes", [])
     if not learnings:
         return ""
-    # Deduplicar por tema: si el mismo tema aparece varias veces, queda el más reciente
     seen: dict[str, str] = {}
     for entry in learnings:
         seen[entry["tema"]] = entry["insight"]

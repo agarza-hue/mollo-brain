@@ -1,4 +1,10 @@
-"""Endpoint principal de chat con RAG."""
+"""
+Endpoints de chat con routing inteligente de modelos:
+  simple   → GPT-4o-mini  (~4% del costo de Claude)
+  medio    → GPT-4o        (~72% del costo de Claude)
+  complejo → Claude Sonnet (calidad máxima)
+  agente   → GPT-4o con tools (herramientas externas)
+"""
 import asyncio
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
@@ -7,18 +13,34 @@ from typing import Optional
 
 from embeddings import get_embedding
 from qdrant_service import search
-from claude_service import chat_with_rag, stream_chat_with_rag, analyze_document, extract_learning
+from claude_service import chat_with_rag, stream_chat_with_rag, run_agent, stream_agent, analyze_document
+from openai_brain import (
+    chat_openai, stream_chat_openai,
+    run_agent_openai, stream_agent_openai,
+    GPT_MINI, GPT_4O,
+)
 from memory_service import save_turn, save_learning, get_semantic_context, get_business_context, get_learnings_context
+from openai_service import extract_learning, classify_complexity
+from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
+
+# Mapa de nivel → modelo usado (para logging)
+MODELO_LABEL = {
+    "simple":   f"GPT-4o-mini",
+    "medio":    f"GPT-4o",
+    "complejo": "Claude Sonnet 4.6",
+    "agente":   f"GPT-4o + tools",
+}
 
 
 class ChatRequest(BaseModel):
     pregunta: str
-    categoria: Optional[str] = None  # filtrar búsqueda por categoría
+    categoria: Optional[str] = None
     top_k: int = 5
     session_id: str = "default"
     usar_memoria: bool = True
+    modo: Optional[str] = None  # "simple"|"medio"|"complejo"|"agente" | None (auto)
 
 
 class AnalyzeRequest(BaseModel):
@@ -26,63 +48,122 @@ class AnalyzeRequest(BaseModel):
     instruccion: Optional[str] = ""
 
 
+def _build_doc_context(results: list) -> str:
+    if not results:
+        return ""
+    snippets = []
+    for r in results:
+        source = r.payload.get("source", "desconocido")
+        cat    = r.payload.get("categoria", "")
+        score  = round(r.score, 3)
+        text   = r.payload.get("text", "")
+        snippets.append(f"[{source} | {cat} | relevancia: {score}]\n{text}")
+    return "\n\n---\n\n".join(snippets)
+
+
+def _save_in_background(
+    background_tasks: BackgroundTasks,
+    pregunta: str, respuesta: str,
+    session_id: str, query_vector: list,
+):
+    def _work():
+        try:
+            save_turn(pregunta, respuesta, session_id, vector=query_vector)
+            tema, insight = extract_learning(pregunta, respuesta)
+            if insight:
+                save_learning(tema, insight)
+            update_topics_background(pregunta, respuesta)
+        except Exception:
+            pass
+    background_tasks.add_task(_work)
+
+
+def _collect_context(query_vector: list, req: "ChatRequest"):
+    memory_context = get_semantic_context(query_vector) if req.usar_memoria else ""
+    business_ctx   = get_business_context()              if req.usar_memoria else ""
+    learnings_ctx  = get_learnings_context()             if req.usar_memoria else ""
+    topics         = detect_topics(req.pregunta)         if req.usar_memoria else []
+    topic_memory   = get_topic_memories(topics)          if topics else ""
+    return memory_context, business_ctx, learnings_ctx, topic_memory
+
+
+async def _respond(modo: str, pregunta: str, doc_context: str,
+                   memory_context: str, business_ctx: str,
+                   learnings_ctx: str, topic_memory: str) -> str:
+    kwargs = dict(
+        pregunta=pregunta,
+        doc_context=doc_context,
+        memory_context=memory_context,
+        business_context=business_ctx,
+        learnings_context=learnings_ctx,
+        topic_memory=topic_memory,
+    )
+    if modo == "agente":
+        return await run_agent_openai(**kwargs, model=GPT_4O)
+    if modo == "simple":
+        return chat_openai(**kwargs, model=GPT_MINI)
+    if modo == "medio":
+        return chat_openai(**kwargs, model=GPT_4O)
+    # complejo → Claude
+    return chat_with_rag(**kwargs)
+
+
+async def _stream(modo: str, pregunta: str, doc_context: str,
+                  memory_context: str, business_ctx: str,
+                  learnings_ctx: str, topic_memory: str):
+    kwargs = dict(
+        pregunta=pregunta,
+        doc_context=doc_context,
+        memory_context=memory_context,
+        business_context=business_ctx,
+        learnings_context=learnings_ctx,
+        topic_memory=topic_memory,
+    )
+    if modo == "agente":
+        async for chunk in stream_agent_openai(**kwargs, model=GPT_4O):
+            yield chunk
+    elif modo == "simple":
+        async for chunk in stream_chat_openai(**kwargs, model=GPT_MINI):
+            yield chunk
+    elif modo == "medio":
+        async for chunk in stream_chat_openai(**kwargs, model=GPT_4O):
+            yield chunk
+    else:  # complejo → Claude
+        async for chunk in stream_chat_with_rag(**kwargs):
+            yield chunk
+
+
+# ── Endpoints ─────────────────────────────────────────────────────────────────
+
 @router.post("/ask")
 async def ask_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
-    # 1. Embedding de la pregunta
     query_vector = await get_embedding(req.pregunta)
+    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria)
+    doc_context  = _build_doc_context(results)
 
-    # 2. Buscar documentos relevantes en Qdrant
-    results = search(query_vector, top_k=req.top_k, categoria=req.categoria)
+    memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
 
-    doc_context = ""
-    if results:
-        snippets = []
-        for r in results:
-            source = r.payload.get("source", "desconocido")
-            cat = r.payload.get("categoria", "")
-            score = round(r.score, 3)
-            text = r.payload.get("text", "")
-            snippets.append(f"[{source} | {cat} | relevancia: {score}]\n{text}")
-        doc_context = "\n\n---\n\n".join(snippets)
+    modo = req.modo or classify_complexity(req.pregunta)
 
-    # 3. Obtener contexto de memoria semántica + aprendizajes acumulados
-    memory_context = get_semantic_context(query_vector) if req.usar_memoria else ""
-    business_ctx = get_business_context() if req.usar_memoria else ""
-    learnings_ctx = get_learnings_context() if req.usar_memoria else ""
-
-    # 4. Generar respuesta con Claude (incluye aprendizajes en el contexto)
-    respuesta = chat_with_rag(
-        pregunta=req.pregunta,
-        doc_context=doc_context,
-        memory_context=memory_context,
-        business_context=business_ctx,
-        learnings_context=learnings_ctx,
+    respuesta = await _respond(
+        modo, req.pregunta, doc_context,
+        memory_context, business_ctx, learnings_ctx, topic_memory,
     )
 
-    # 5. Guardar turno en memoria (con vector para recuperación semántica futura)
-    save_turn(req.pregunta, respuesta, req.session_id, vector=query_vector)
-
-    # 6. Extraer y guardar aprendizaje en background — no bloquea la respuesta
-    def _extract_and_save():
-        try:
-            tema, insight = extract_learning(req.pregunta, respuesta)
-            if insight:
-                save_learning(tema, insight)
-        except Exception:
-            pass
-
-    background_tasks.add_task(_extract_and_save)
+    _save_in_background(background_tasks, req.pregunta, respuesta, req.session_id, query_vector)
 
     return {
-        "respuesta": respuesta,
+        "respuesta":          respuesta,
+        "modo":               modo,
+        "modelo":             MODELO_LABEL.get(modo, modo),
         "fuentes_consultadas": len(results),
         "fuentes": [
             {
-                "archivo": r.payload.get("source"),
-                "categoria": r.payload.get("categoria"),
+                "archivo":    r.payload.get("source"),
+                "categoria":  r.payload.get("categoria"),
                 "relevancia": round(r.score, 3),
             }
             for r in results
@@ -96,55 +177,34 @@ async def stream_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
     query_vector = await get_embedding(req.pregunta)
-    results = search(query_vector, top_k=req.top_k, categoria=req.categoria)
+    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria)
+    doc_context  = _build_doc_context(results)
 
-    doc_context = ""
-    if results:
-        snippets = []
-        for r in results:
-            source = r.payload.get("source", "desconocido")
-            cat    = r.payload.get("categoria", "")
-            score  = round(r.score, 3)
-            text   = r.payload.get("text", "")
-            snippets.append(f"[{source} | {cat} | relevancia: {score}]\n{text}")
-        doc_context = "\n\n---\n\n".join(snippets)
+    memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
 
-    memory_context = get_semantic_context(query_vector) if req.usar_memoria else ""
-    business_ctx   = get_business_context()              if req.usar_memoria else ""
-    learnings_ctx  = get_learnings_context()             if req.usar_memoria else ""
+    modo = req.modo or classify_complexity(req.pregunta)
 
     collected: list[str] = []
 
     async def generate():
-        async for chunk in stream_chat_with_rag(
-            pregunta=req.pregunta,
-            doc_context=doc_context,
-            memory_context=memory_context,
-            business_context=business_ctx,
-            learnings_context=learnings_ctx,
+        async for chunk in _stream(
+            modo, req.pregunta, doc_context,
+            memory_context, business_ctx, learnings_ctx, topic_memory,
         ):
             collected.append(chunk)
             yield chunk
 
         full_response = "".join(collected)
-        save_turn(req.pregunta, full_response, req.session_id, vector=query_vector)
-
-        def _learn():
-            try:
-                tema, insight = extract_learning(req.pregunta, full_response)
-                if insight:
-                    save_learning(tema, insight)
-            except Exception:
-                pass
-
-        background_tasks.add_task(_learn)
+        _save_in_background(
+            background_tasks, req.pregunta, full_response,
+            req.session_id, query_vector,
+        )
 
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
 
 
 @router.post("/analyze")
 async def analyze(req: AnalyzeRequest):
-    """Analiza un texto libre sin RAG."""
     if not req.texto.strip():
         raise HTTPException(400, "El texto no puede estar vacío")
     resultado = analyze_document(req.texto, req.instruccion)
