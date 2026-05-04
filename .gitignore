@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+mollo_memory.json
+*.log
