@@ -2,7 +2,8 @@
 import anthropic
 from config import ANTHROPIC_API_KEY, CLAUDE_MODEL
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+client       = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+async_client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
 
 MOLLO_SYSTEM = """Eres Mollo, el asistente empresarial ejecutivo de Adolfo. Nombrado así por su perro.
 
@@ -38,22 +39,9 @@ def chat_with_rag(
 ) -> str:
     """Genera respuesta de Mollo con contexto RAG + memoria + aprendizajes."""
 
-    context_parts = []
-
-    if business_context:
-        context_parts.append(f"CONTEXTO DEL NEGOCIO DE ADOLFO:\n{business_context}")
-
-    if learnings_context:
-        context_parts.append(f"APRENDIZAJES PREVIOS DE MOLLO:\n{learnings_context}")
-
-    if memory_context:
-        context_parts.append(f"CONVERSACIONES RECIENTES:\n{memory_context}")
-
-    if doc_context:
-        context_parts.append(f"DOCUMENTOS RELEVANTES ENCONTRADOS:\n{doc_context}")
-
-    full_context = "\n\n".join(context_parts)
-    user_message = f"{full_context}\n\nPREGUNTA DE ADOLFO: {pregunta}" if full_context else pregunta
+    user_message = _build_user_message(
+        pregunta, doc_context, memory_context, business_context, learnings_context
+    )
 
     response = client.messages.create(
         model=CLAUDE_MODEL,
@@ -62,6 +50,47 @@ def chat_with_rag(
         messages=[{"role": "user", "content": user_message}],
     )
     return response.content[0].text
+
+
+def _build_user_message(
+    pregunta: str,
+    doc_context: str,
+    memory_context: str,
+    business_context: str,
+    learnings_context: str,
+) -> str:
+    parts = []
+    if business_context:
+        parts.append(f"CONTEXTO DEL NEGOCIO DE ADOLFO:\n{business_context}")
+    if learnings_context:
+        parts.append(f"APRENDIZAJES PREVIOS DE MOLLO:\n{learnings_context}")
+    if memory_context:
+        parts.append(f"CONVERSACIONES RECIENTES:\n{memory_context}")
+    if doc_context:
+        parts.append(f"DOCUMENTOS RELEVANTES ENCONTRADOS:\n{doc_context}")
+    full = "\n\n".join(parts)
+    return f"{full}\n\nPREGUNTA DE ADOLFO: {pregunta}" if full else pregunta
+
+
+async def stream_chat_with_rag(
+    pregunta: str,
+    doc_context: str = "",
+    memory_context: str = "",
+    business_context: str = "",
+    learnings_context: str = "",
+):
+    """Genera respuesta de Mollo en streaming, token a token."""
+    user_message = _build_user_message(
+        pregunta, doc_context, memory_context, business_context, learnings_context
+    )
+    async with async_client.messages.stream(
+        model=CLAUDE_MODEL,
+        max_tokens=2048,
+        system=MOLLO_SYSTEM,
+        messages=[{"role": "user", "content": user_message}],
+    ) as stream:
+        async for text in stream.text_stream:
+            yield text
 
 
 def analyze_document(text: str, instruccion: str = "") -> str:

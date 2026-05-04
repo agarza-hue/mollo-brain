@@ -5,11 +5,8 @@ import httpx
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.live import Live
-from rich.spinner import Spinner
-from rich.text import Text
 from rich.rule import Rule
 from rich.padding import Padding
-from rich import print as rprint
 
 BRAIN_URL = "http://localhost:8002"
 console = Console(highlight=False)
@@ -33,15 +30,25 @@ def header():
     console.print()
 
 
-def ask(pregunta: str, categoria: str | None = None) -> dict:
-    with console.status("[dim]Mollo está pensando…[/dim]", spinner="dots"):
-        r = httpx.post(
-            f"{BRAIN_URL}/chat/ask",
+def ask_stream(pregunta: str, categoria: str | None = None) -> str:
+    """Llama al endpoint de streaming y renderiza en tiempo real con rich.Live."""
+    collected: list[str] = []
+
+    console.print()
+    with Live(console=console, refresh_per_second=15, vertical_overflow="visible") as live:
+        with httpx.stream(
+            "POST",
+            f"{BRAIN_URL}/chat/stream",
             json={"pregunta": pregunta, "categoria": categoria, "usar_memoria": True},
             timeout=120,
-        )
-        r.raise_for_status()
-        return r.json()
+        ) as r:
+            r.raise_for_status()
+            for chunk in r.iter_text():
+                collected.append(chunk)
+                live.update(Padding(Markdown("".join(collected)), (0, 2)))
+
+    console.print()
+    return "".join(collected)
 
 
 def cmd_docs():
@@ -159,8 +166,7 @@ def run():
 
         # Pregunta a Mollo
         try:
-            result = ask(raw, categoria=session_categoria)
-            print_mollo(result["respuesta"], result.get("fuentes", []))
+            ask_stream(raw, categoria=session_categoria)
         except httpx.ConnectError:
             print_error(f"No se puede conectar a Mollo Brain en {BRAIN_URL} — ¿está corriendo?")
         except httpx.HTTPStatusError as e:
