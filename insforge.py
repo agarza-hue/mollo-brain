@@ -30,7 +30,7 @@ def get_tenant(x_api_key: Optional[str] = Header(default=None)) -> Optional[dict
     try:
         row = db.execute(
             text("""
-                SELECT id, slug, name, plan, req_used, req_limit, is_admin
+                SELECT id, slug, name, plan, req_used, req_limit, is_admin, status
                 FROM sinergy_tenants
                 WHERE api_key = :key
             """),
@@ -44,6 +44,14 @@ def get_tenant(x_api_key: Optional[str] = Header(default=None)) -> Optional[dict
                             detail="API key inválida")
 
     tenant = dict(row._mapping)
+
+    if tenant.get("status") == "suspended":
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                            detail="Cuenta suspendida. Verifica tu suscripción.")
+
+    if tenant.get("status") == "pending":
+        raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                            detail="Cuenta pendiente de pago. Completa el checkout.")
 
     # Admin siempre pasa — sin restricciones de ningún tipo
     if not tenant.get("is_admin"):

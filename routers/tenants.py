@@ -263,17 +263,28 @@ def register_tenant(body: RegisterRequest):
 
         row = db.execute(
             text("""
-                INSERT INTO sinergy_tenants (slug, name, plan, req_limit, api_key, email)
-                VALUES (:slug, :name, :plan, :limit, :key, :email)
+                INSERT INTO sinergy_tenants (slug, name, plan, req_limit, api_key, email, status)
+                VALUES (:slug, :name, :plan, :limit, :key, :email, :status)
                 RETURNING id, slug, name, plan, req_used, req_limit, api_key, created_at, is_admin, email
             """),
             {"slug": slug, "name": body.name, "plan": body.plan,
-             "limit": limit, "key": key, "email": body.email},
+             "limit": limit, "key": key, "email": body.email,
+             "status": "pending" if body.plan != "enterprise" else "active"},
         ).fetchone()
         db.commit()
         result = _row_to_out(dict(row._mapping))
-        # Devolver api_key solo en el registro — no se vuelve a mostrar
-        result["api_key"] = key
+
+        # Enterprise: devolver api_key directamente (proceso manual)
+        if body.plan == "enterprise":
+            result["api_key"] = key
+            result["checkout_url"] = None
+            return result
+
+        # Basic / Pro: crear checkout de Stripe
+        from routers.billing import create_checkout_url
+        checkout_url = create_checkout_url(result["id"], slug, body.plan, body.email)
+        result["api_key"] = None
+        result["checkout_url"] = checkout_url
         return result
     finally:
         db.close()
