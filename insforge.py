@@ -58,7 +58,7 @@ def get_tenant(x_api_key: Optional[str] = Header(default=None)) -> Optional[dict
 
 
 def increment_usage(tenant_id: int) -> None:
-    """Incrementa req_used en 1. Llamar en background tras cada request exitoso."""
+    """Incrementa req_used en 1 y dispara alertas de uso en umbrales 80% y 100%."""
     db = SessionLocal()
     try:
         db.execute(
@@ -66,6 +66,36 @@ def increment_usage(tenant_id: int) -> None:
             {"id": tenant_id},
         )
         db.commit()
+
+        row = db.execute(
+            text("""
+                SELECT slug, name, plan, email, req_used, req_limit,
+                       alert_sent_80, is_admin
+                FROM sinergy_tenants WHERE id = :id
+            """),
+            {"id": tenant_id},
+        ).fetchone()
+        if not row:
+            return
+
+        t = dict(row._mapping)
+        if t["is_admin"] or not t["email"] or t["req_limit"] >= 999_999:
+            return
+
+        used, limit = t["req_used"], t["req_limit"]
+        pct = used / limit
+
+        if pct >= 0.80 and not t["alert_sent_80"]:
+            from alert_service import send_usage_alert_80, send_limit_reached
+            if pct >= 1.0:
+                send_limit_reached(t["name"], t["email"], t["plan"], limit, t["slug"])
+            else:
+                send_usage_alert_80(t["name"], t["email"], t["plan"], used, limit, t["slug"])
+            db.execute(
+                text("UPDATE sinergy_tenants SET alert_sent_80 = TRUE WHERE id = :id"),
+                {"id": tenant_id},
+            )
+            db.commit()
     finally:
         db.close()
 

@@ -189,7 +189,7 @@ def reset_usage(slug: str):
     try:
         row = db.execute(
             text("""
-                UPDATE sinergy_tenants SET req_used = 0 WHERE slug = :slug
+                UPDATE sinergy_tenants SET req_used = 0, alert_sent_80 = FALSE WHERE slug = :slug
                 RETURNING id, slug, name, plan, req_used, req_limit, api_key, created_at, is_admin
             """),
             {"slug": slug},
