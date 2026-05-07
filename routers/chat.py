@@ -7,7 +7,7 @@ Endpoints de chat con routing inteligente de modelos:
 """
 import asyncio
 import time
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
@@ -26,6 +26,7 @@ from memory_service import save_turn, save_learning, get_semantic_context, get_b
 from openai_service import extract_learning, classify_complexity
 from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
 import cost_service
+from insforge import get_tenant, increment_usage
 
 # Cache de contexto estático — se invalida cada 5 minutos.
 # Garantiza que el bloque cacheado de Anthropic llegue idéntico request tras request.
@@ -179,7 +180,11 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
 @router.post("/ask")
-async def ask_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
+async def ask_mollo(
+    req: ChatRequest,
+    background_tasks: BackgroundTasks,
+    tenant: dict | None = Depends(get_tenant),
+):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
@@ -195,6 +200,9 @@ async def ask_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
         modo, req.pregunta, doc_context,
         memory_context, business_ctx, learnings_ctx, topic_memory,
     )
+
+    if tenant:
+        background_tasks.add_task(increment_usage, tenant["id"])
 
     _save_in_background(background_tasks, req.pregunta, respuesta,
                         req.session_id, query_vector, modo=modo, usage=usage)
@@ -216,7 +224,11 @@ async def ask_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
 
 
 @router.post("/stream")
-async def stream_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
+async def stream_mollo(
+    req: ChatRequest,
+    background_tasks: BackgroundTasks,
+    tenant: dict | None = Depends(get_tenant),
+):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
@@ -248,6 +260,8 @@ async def stream_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
             yield chunk
 
         full_response = "".join(collected)
+        if tenant:
+            background_tasks.add_task(increment_usage, tenant["id"])
         _save_in_background(
             background_tasks, req.pregunta, full_response,
             req.session_id, query_vector,

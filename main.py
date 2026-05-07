@@ -5,12 +5,14 @@ Puerto: 8002
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from qdrant_service import ensure_collection, ensure_memory_collection, ensure_chatgpt_collection, collection_stats
-from routers import documents, chat, memory, vps
+from routers import documents, chat, memory, vps, tasks, costs, limits, tenants
+from routers import auth_router, convs_router
 
 
 @asynccontextmanager
@@ -37,10 +39,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(auth_router.router)
+app.include_router(convs_router.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(memory.router)
 app.include_router(vps.router)
+app.include_router(tasks.router)
+app.include_router(costs.router)
+app.include_router(limits.router)
+app.include_router(tenants.router)
 
 
 @app.get("/")
