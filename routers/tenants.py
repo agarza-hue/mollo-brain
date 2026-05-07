@@ -21,6 +21,13 @@ class TenantCreate(BaseModel):
     slug: str
     name: str
     plan: str = "basic"
+    email: Optional[str] = None
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: Optional[str] = None
+    plan: str = "basic"
 
 
 class TenantOut(BaseModel):
@@ -48,6 +55,16 @@ class TenantSummary(BaseModel):
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+import re
+
+def _slugify(name: str) -> str:
+    s = name.lower().strip()
+    s = re.sub(r'[^\w\s-]', '', s)
+    s = re.sub(r'[\s_-]+', '-', s)
+    s = s.strip('-')
+    return s[:40] or "tenant"
+
 
 def _row_to_out(row: dict) -> dict:
     limit = row["req_limit"]
@@ -198,5 +215,44 @@ def delete_tenant(slug: str):
         db.commit()
         if result.rowcount == 0:
             raise HTTPException(404, f"Tenant '{slug}' no encontrado")
+    finally:
+        db.close()
+
+
+# ── Registro público (sin auth) ───────────────────────────────────────────────
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+def register_tenant(body: RegisterRequest):
+    """Endpoint público — el cliente se registra y recibe su API key."""
+    if body.plan not in PLAN_LIMITS:
+        raise HTTPException(400, f"Plan inválido. Opciones: {list(PLAN_LIMITS)}")
+
+    base_slug = _slugify(body.name)
+    key   = generate_api_key()
+    limit = PLAN_LIMITS[body.plan]
+
+    db = SessionLocal()
+    try:
+        # Garantizar slug único añadiendo sufijo numérico si ya existe
+        slug = base_slug
+        suffix = 1
+        while db.execute(text("SELECT 1 FROM sinergy_tenants WHERE slug = :s"), {"s": slug}).fetchone():
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+
+        row = db.execute(
+            text("""
+                INSERT INTO sinergy_tenants (slug, name, plan, req_limit, api_key, email)
+                VALUES (:slug, :name, :plan, :limit, :key, :email)
+                RETURNING id, slug, name, plan, req_used, req_limit, api_key, created_at, is_admin, email
+            """),
+            {"slug": slug, "name": body.name, "plan": body.plan,
+             "limit": limit, "key": key, "email": body.email},
+        ).fetchone()
+        db.commit()
+        result = _row_to_out(dict(row._mapping))
+        # Devolver api_key solo en el registro — no se vuelve a mostrar
+        result["api_key"] = key
+        return result
     finally:
         db.close()
