@@ -62,9 +62,12 @@ async def stripe_webhook(request: Request):
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
         except stripe.error.SignatureVerificationError:
             raise HTTPException(400, "Invalid signature")
+        # Stripe SDK v15 returns StripeObject — convert to plain dict
+        import json as _json
+        event = _json.loads(payload.decode())
     else:
-        import json
-        event = json.loads(payload)
+        import json as _json
+        event = _json.loads(payload)
 
     etype = event["type"]
 
@@ -81,7 +84,7 @@ async def stripe_webhook(request: Request):
 
 
 def _handle_checkout_completed(session: dict):
-    tenant_id   = session.get("metadata", {}).get("tenant_id")
+    tenant_id   = (session.get("metadata") or {}).get("tenant_id")
     customer_id = session.get("customer")
     sub_id      = session.get("subscription")
 
@@ -110,7 +113,7 @@ def _handle_checkout_completed(session: dict):
 
 
 def _handle_subscription_ended(subscription: dict):
-    sub_id = subscription.get("id")
+    sub_id = subscription.get("id") if isinstance(subscription, dict) else subscription
     if not sub_id:
         return
     db = SessionLocal()
@@ -125,7 +128,7 @@ def _handle_subscription_ended(subscription: dict):
 
 
 def _handle_subscription_resumed(subscription: dict):
-    sub_id = subscription.get("id")
+    sub_id = subscription.get("id") if isinstance(subscription, dict) else subscription
     if not sub_id:
         return
     db = SessionLocal()
