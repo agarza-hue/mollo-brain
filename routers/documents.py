@@ -1,14 +1,16 @@
 """Endpoints para gestión de documentos e importación de historial ChatGPT."""
 from datetime import datetime
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import os, tempfile
 
 from document_service import save_document, process_document, list_documents, delete_document, extract_text
-from qdrant_service import upsert_vectors, delete_by_source, collection_stats
+from qdrant_service import upsert_vectors, delete_by_source, collection_stats, tenant_collection
 from embeddings import get_embeddings_batch
-from config import CATEGORIAS
+from config import CATEGORIAS, QDRANT_COLLECTION
+from insforge import get_tenant
 
 router = APIRouter(prefix="/docs", tags=["Documentos"])
 
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/docs", tags=["Documentos"])
 async def upload_document(
     file: UploadFile = File(...),
     categoria: str = Form("general"),
+    tenant: dict | None = Depends(get_tenant),
 ):
     if categoria not in CATEGORIAS:
         raise HTTPException(400, f"Categoría inválida. Opciones: {CATEGORIAS}")
@@ -37,8 +40,9 @@ async def upload_document(
     texts = [r["text"] for r in records]
     embeddings = await get_embeddings_batch(texts)
 
-    # Guardar en Qdrant
-    upsert_vectors(records, embeddings)
+    # Guardar en Qdrant (colección aislada por tenant)
+    coll = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+    upsert_vectors(records, embeddings, collection=coll)
 
     return {
         "status": "ok",
@@ -46,6 +50,42 @@ async def upload_document(
         "categoria": categoria,
         "chunks_indexados": len(records),
         "ruta": file_path,
+        "coleccion": coll,
+    }
+
+
+class UploadTextRequest(BaseModel):
+    contenido: str
+    nombre_archivo: str = "sync_n8n.txt"
+    categoria: str = "general"
+
+
+@router.post("/upload-text")
+async def upload_text_document(req: UploadTextRequest, tenant: dict | None = Depends(get_tenant)):
+    """Indexa texto plano directamente — usado por n8n sync_docs."""
+    if req.categoria not in CATEGORIAS:
+        raise HTTPException(400, f"Categoría inválida. Opciones: {CATEGORIAS}")
+    if not req.contenido.strip():
+        raise HTTPException(400, "Contenido vacío")
+
+    content = req.contenido.encode("utf-8")
+    file_path = save_document(content, req.nombre_archivo, req.categoria)
+
+    records = process_document(file_path, req.nombre_archivo, req.categoria)
+    if not records:
+        raise HTTPException(422, "No se pudo procesar el texto")
+
+    texts = [r["text"] for r in records]
+    embeddings = await get_embeddings_batch(texts)
+    coll = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+    upsert_vectors(records, embeddings, collection=coll)
+
+    return {
+        "status": "ok",
+        "archivo": req.nombre_archivo,
+        "categoria": req.categoria,
+        "chunks_indexados": len(records),
+        "coleccion": coll,
     }
 
 
@@ -55,10 +95,11 @@ def get_documents():
 
 
 @router.delete("/{categoria}/{filename}")
-def remove_document(categoria: str, filename: str):
+def remove_document(categoria: str, filename: str, tenant: dict | None = Depends(get_tenant)):
     deleted_file = delete_document(filename, categoria)
     if deleted_file:
-        delete_by_source(filename)
+        coll = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+        delete_by_source(filename, collection=coll)
         return {"status": "ok", "eliminado": filename}
     raise HTTPException(404, "Documento no encontrado")
 
@@ -120,58 +161,129 @@ async def upload_from_telegram(
     filename = file.filename or "documento"
     suffix   = Path(filename).suffix.lower()
 
-    supported = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".csv", ".md"}
+    DOC_EXTS = {".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt", ".csv", ".md"}
+    IMG_EXTS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
+    supported = DOC_EXTS | IMG_EXTS
     if suffix not in supported:
-        raise HTTPException(415, f"Formato '{suffix}' no soportado. Válidos: {', '.join(supported)}")
+        raise HTTPException(415, f"Formato '{suffix}' no soportado. Válidos: {', '.join(sorted(supported))}")
 
-    # 1. Extraer texto (necesitamos temp file para document_service)
-    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-    try:
-        texto = extract_text(tmp_path)
-    except Exception:
-        texto = ""
-    finally:
-        os.unlink(tmp_path)
+    es_imagen = suffix in IMG_EXTS
 
-    # 2. Detectar categoría
-    categoria = _detectar_categoria(filename, caption, texto, aux_json_call)
+    if es_imagen:
+        # ── Ruta imágenes: Vision API ─────────────────────────────────────
+        import base64
+        from openai import OpenAI
+        from config import OPENAI_API_KEY
+        _oclient = OpenAI(api_key=OPENAI_API_KEY)
 
-    # 3. Guardar localmente e indexar en Qdrant
-    file_path  = save_document(content, filename, categoria)
-    records    = process_document(file_path, filename, categoria)
-    chunks_count = 0
-    if records:
-        texts      = [r["text"] for r in records]
-        embeddings = await get_embeddings_batch(texts)
-        upsert_vectors(records, embeddings)
-        chunks_count = len(records)
+        mime_map = {".jpg": "jpeg", ".jpeg": "jpeg", ".png": "png", ".gif": "gif", ".webp": "webp"}
+        mime     = mime_map.get(suffix, "jpeg")
+        b64      = base64.b64encode(content).decode()
 
-    # 4. Subir a Dropbox
-    mes           = datetime.now().strftime("%Y-%m")
-    ruta_dropbox  = f"Mollo/Documentos/{categoria}/{mes}/{filename}"
-    try:
-        dropbox_resultado = subir_bytes(content, filename, ruta_dropbox)
-    except Exception as e:
-        dropbox_resultado = f"Error Dropbox: {e}"
-
-    # 5. Análisis con GPT-4o
-    if texto.strip():
-        prompt = (
-            f"Analiza este documento empresarial '{filename}':\n\n"
-            f"{texto[:4000]}\n\n"
-            "Responde con:\n"
-            "**Resumen ejecutivo** (2-3 líneas)\n"
-            "**Puntos clave** (3-5 bullets)\n"
-            "**Acción recomendada**"
-        )
+        # 1. Análisis visual con GPT-4o Vision
         try:
-            analisis = chat_openai(prompt, model=GPT_4O)
+            resp = _oclient.chat.completions.create(
+                model="gpt-4o",
+                max_tokens=1200,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "image_url", "image_url": {"url": f"data:image/{mime};base64,{b64}"}},
+                        {"type": "text", "text": (
+                            f"Analiza esta imagen '{filename}' en contexto empresarial. "
+                            "Describe detalladamente: qué muestra, texto o datos visibles, "
+                            "tablas/gráficos/capturas de pantalla si los hay, y relevancia ejecutiva. "
+                            "Responde en español con:\n"
+                            "**Descripción** (2-3 líneas)\n"
+                            "**Contenido visible** (lo que se lee o se ve)\n"
+                            "**Relevancia ejecutiva**"
+                        )},
+                    ],
+                }],
+            )
+            texto   = resp.choices[0].message.content
+            analisis = texto
         except Exception as e:
-            analisis = f"No se pudo generar análisis: {e}"
+            texto    = f"Imagen: {filename}"
+            analisis = f"No se pudo analizar la imagen: {e}"
+
+        # 2. Detectar categoría (caption o nombre)
+        categoria = _detectar_categoria(filename, caption, texto[:500], aux_json_call)
+
+        # 3. Indexar descripción en Qdrant (texto generado por Vision)
+        chunks_count = 0
+        try:
+            records = [{
+                "id":        filename,
+                "text":      f"[Imagen] {filename}\n\n{texto}",
+                "source":    filename,
+                "categoria": categoria,
+                "tipo":      "imagen",
+            }]
+            embeddings   = await get_embeddings_batch([records[0]["text"]])
+            upsert_vectors(records, embeddings)
+            chunks_count = 1
+        except Exception:
+            pass
+
+        # 4. Subir a Dropbox
+        mes          = datetime.now().strftime("%Y-%m")
+        ruta_dropbox = f"Mollo/Imágenes/{categoria}/{mes}/{filename}"
+        try:
+            dropbox_resultado = subir_bytes(content, filename, ruta_dropbox)
+        except Exception as e:
+            dropbox_resultado = f"Error Dropbox: {e}"
+
     else:
-        analisis = "No se pudo extraer texto del documento para análisis."
+        # ── Ruta documentos: extracción de texto ──────────────────────────
+        # 1. Extraer texto
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            texto = extract_text(tmp_path)
+        except Exception:
+            texto = ""
+        finally:
+            os.unlink(tmp_path)
+
+        # 2. Detectar categoría
+        categoria = _detectar_categoria(filename, caption, texto, aux_json_call)
+
+        # 3. Guardar localmente e indexar en Qdrant
+        file_path  = save_document(content, filename, categoria)
+        records    = process_document(file_path, filename, categoria)
+        chunks_count = 0
+        if records:
+            texts      = [r["text"] for r in records]
+            embeddings = await get_embeddings_batch(texts)
+            upsert_vectors(records, embeddings)
+            chunks_count = len(records)
+
+        # 4. Subir a Dropbox
+        mes           = datetime.now().strftime("%Y-%m")
+        ruta_dropbox  = f"Mollo/Documentos/{categoria}/{mes}/{filename}"
+        try:
+            dropbox_resultado = subir_bytes(content, filename, ruta_dropbox)
+        except Exception as e:
+            dropbox_resultado = f"Error Dropbox: {e}"
+
+        # 5. Análisis con GPT-4o
+        if texto.strip():
+            prompt = (
+                f"Analiza este documento empresarial '{filename}':\n\n"
+                f"{texto[:4000]}\n\n"
+                "Responde con:\n"
+                "**Resumen ejecutivo** (2-3 líneas)\n"
+                "**Puntos clave** (3-5 bullets)\n"
+                "**Acción recomendada**"
+            )
+            try:
+                analisis = chat_openai(prompt, model=GPT_4O)
+            except Exception as e:
+                analisis = f"No se pudo generar análisis: {e}"
+        else:
+            analisis = "No se pudo extraer texto del documento para análisis."
 
     return {
         "status":            "ok",

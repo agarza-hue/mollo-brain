@@ -53,22 +53,28 @@ def search_memory(query_vector: list[float], top_k: int = 6) -> list:
     return results.points
 
 
-def upsert_vectors(records: list[dict], embeddings: list[list[float]]):
+def tenant_collection(slug: str) -> str:
+    return f"sinergy_{slug}"
+
+
+def upsert_vectors(records: list[dict], embeddings: list[list[float]], collection: str = QDRANT_COLLECTION):
+    _ensure(collection)
     points = [
         PointStruct(id=rec["id"], vector=emb, payload=rec["payload"])
         for rec, emb in zip(records, embeddings)
     ]
-    client.upsert(collection_name=QDRANT_COLLECTION, points=points)
+    client.upsert(collection_name=collection, points=points)
 
 
-def search(query_vector: list[float], top_k: int = 5, categoria: Optional[str] = None):
+def search(query_vector: list[float], top_k: int = 5, categoria: Optional[str] = None, collection: str = QDRANT_COLLECTION):
+    _ensure(collection)
     search_filter = None
     if categoria:
         search_filter = Filter(
             must=[FieldCondition(key="categoria", match=MatchValue(value=categoria))]
         )
     results = client.query_points(
-        collection_name=QDRANT_COLLECTION,
+        collection_name=collection,
         query=query_vector,
         limit=top_k,
         query_filter=search_filter,
@@ -77,10 +83,10 @@ def search(query_vector: list[float], top_k: int = 5, categoria: Optional[str] =
     return results.points
 
 
-def delete_by_source(filename: str):
+def delete_by_source(filename: str, collection: str = QDRANT_COLLECTION):
     from qdrant_client.models import FilterSelector
     client.delete(
-        collection_name=QDRANT_COLLECTION,
+        collection_name=collection,
         points_selector=FilterSelector(
             filter=Filter(
                 must=[FieldCondition(key="source", match=MatchValue(value=filename))]

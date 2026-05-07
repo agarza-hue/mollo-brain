@@ -15,7 +15,8 @@ from typing import Optional
 import json as _json
 
 from embeddings import get_embedding
-from qdrant_service import search
+from qdrant_service import search, tenant_collection
+from config import QDRANT_COLLECTION
 from claude_service import chat_with_rag, stream_chat_with_rag, run_agent, stream_agent, analyze_document
 from openai_brain import (
     chat_openai, stream_chat_openai,
@@ -191,7 +192,8 @@ async def ask_mollo(
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
     query_vector = await get_embedding(req.pregunta)
-    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria)
+    coll         = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
     doc_context  = _build_doc_context(results)
 
     memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
@@ -236,7 +238,8 @@ async def stream_mollo(
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
     query_vector = await get_embedding(req.pregunta)
-    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria)
+    coll         = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
     doc_context  = _build_doc_context(results)
 
     memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
