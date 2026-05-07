@@ -6,10 +6,13 @@ Endpoints de chat con routing inteligente de modelos:
   agente   → GPT-4o con tools (herramientas externas)
 """
 import asyncio
+import time
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional
+
+import json as _json
 
 from embeddings import get_embedding
 from qdrant_service import search
@@ -22,6 +25,31 @@ from openai_brain import (
 from memory_service import save_turn, save_learning, get_semantic_context, get_business_context, get_learnings_context
 from openai_service import extract_learning, classify_complexity
 from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
+import cost_service
+
+# Cache de contexto estático — se invalida cada 5 minutos.
+# Garantiza que el bloque cacheado de Anthropic llegue idéntico request tras request.
+_STATIC_CTX: dict = {}
+_STATIC_TTL = 300  # segundos
+
+
+def _get_static_context() -> tuple[str, str, str]:
+    """Devuelve (business_ctx, learnings_ctx, topic_memory) desde caché o recalcula."""
+    now = time.monotonic()
+    if now - _STATIC_CTX.get("ts", 0) > _STATIC_TTL:
+        _STATIC_CTX.update({
+            "business":   get_business_context(),
+            "learnings":  get_learnings_context(),
+            "topics":     get_topic_memories(["financiero", "estrategia", "ventas",
+                                               "rrhh", "operaciones", "general"]),
+            "ts":         now,
+        })
+    return _STATIC_CTX["business"], _STATIC_CTX["learnings"], _STATIC_CTX["topics"]
+
+
+def _invalidate_static_cache():
+    """Fuerza refresco en el próximo request (llamar tras guardar nueva memoria)."""
+    _STATIC_CTX["ts"] = 0
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -65,6 +93,8 @@ def _save_in_background(
     background_tasks: BackgroundTasks,
     pregunta: str, respuesta: str,
     session_id: str, query_vector: list,
+    modo: str = "medio",
+    usage: dict | None = None,
 ):
     def _work():
         try:
@@ -72,24 +102,38 @@ def _save_in_background(
             tema, insight = extract_learning(pregunta, respuesta)
             if insight:
                 save_learning(tema, insight)
+                _invalidate_static_cache()
             update_topics_background(pregunta, respuesta)
+            if usage:
+                from topic_memory_service import detect_topics as _dt
+                topics = _dt(pregunta)
+                topic  = topics[0] if topics else "general"
+                cost_service.record(
+                    model=usage.get("model", "gpt-4o-mini"),
+                    modo=modo,
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    cache_read_tokens=usage.get("cache_read_tokens", 0),
+                    query_preview=pregunta,
+                    topic=topic,
+                )
         except Exception:
             pass
     background_tasks.add_task(_work)
 
 
-def _collect_context(query_vector: list, req: "ChatRequest"):
+def _collect_context(query_vector: list, req: "ChatRequest"):  # noqa: F821
     memory_context = get_semantic_context(query_vector) if req.usar_memoria else ""
-    business_ctx   = get_business_context()              if req.usar_memoria else ""
-    learnings_ctx  = get_learnings_context()             if req.usar_memoria else ""
-    topics         = detect_topics(req.pregunta)         if req.usar_memoria else []
-    topic_memory   = get_topic_memories(topics)          if topics else ""
+    if req.usar_memoria:
+        business_ctx, learnings_ctx, topic_memory = _get_static_context()
+    else:
+        business_ctx = learnings_ctx = topic_memory = ""
     return memory_context, business_ctx, learnings_ctx, topic_memory
 
 
 async def _respond(modo: str, pregunta: str, doc_context: str,
                    memory_context: str, business_ctx: str,
-                   learnings_ctx: str, topic_memory: str) -> str:
+                   learnings_ctx: str, topic_memory: str) -> tuple[str, dict]:
     kwargs = dict(
         pregunta=pregunta,
         doc_context=doc_context,
@@ -104,7 +148,6 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
         return chat_openai(**kwargs, model=GPT_MINI)
     if modo == "medio":
         return chat_openai(**kwargs, model=GPT_4O)
-    # complejo → Claude
     return chat_with_rag(**kwargs)
 
 
@@ -148,12 +191,13 @@ async def ask_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
 
     modo = req.modo or classify_complexity(req.pregunta)
 
-    respuesta = await _respond(
+    respuesta, usage = await _respond(
         modo, req.pregunta, doc_context,
         memory_context, business_ctx, learnings_ctx, topic_memory,
     )
 
-    _save_in_background(background_tasks, req.pregunta, respuesta, req.session_id, query_vector)
+    _save_in_background(background_tasks, req.pregunta, respuesta,
+                        req.session_id, query_vector, modo=modo, usage=usage)
 
     return {
         "respuesta":          respuesta,
@@ -185,12 +229,21 @@ async def stream_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
     modo = req.modo or classify_complexity(req.pregunta)
 
     collected: list[str] = []
+    stream_usage: dict = {}
 
     async def generate():
+        yield f"\x02{modo}:{MODELO_LABEL.get(modo, modo)}\n"
         async for chunk in _stream(
             modo, req.pregunta, doc_context,
             memory_context, business_ctx, learnings_ctx, topic_memory,
         ):
+            if chunk.startswith("\x03"):
+                # Usage sentinel — parse and store, don't send to client
+                try:
+                    stream_usage.update(_json.loads(chunk[1:]))
+                except Exception:
+                    pass
+                continue
             collected.append(chunk)
             yield chunk
 
@@ -198,6 +251,7 @@ async def stream_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
         _save_in_background(
             background_tasks, req.pregunta, full_response,
             req.session_id, query_vector,
+            modo=modo, usage=stream_usage or None,
         )
 
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
@@ -207,5 +261,17 @@ async def stream_mollo(req: ChatRequest, background_tasks: BackgroundTasks):
 async def analyze(req: AnalyzeRequest):
     if not req.texto.strip():
         raise HTTPException(400, "El texto no puede estar vacío")
-    resultado = analyze_document(req.texto, req.instruccion)
+    resultado, usage = analyze_document(req.texto, req.instruccion)
+    try:
+        cost_service.record(
+            model=usage.get("model", "claude-sonnet-4-6"),
+            modo="analyze",
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            cache_read_tokens=usage.get("cache_read_tokens", 0),
+            query_preview=req.instruccion or req.texto[:80],
+            topic="general",
+        )
+    except Exception:
+        pass
     return {"analisis": resultado}
