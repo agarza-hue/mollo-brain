@@ -5,7 +5,8 @@ Endpoints bajo /sinergy/tenants (sin auth por ahora, agregar en prod).
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+import os
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import text
 
@@ -215,6 +216,26 @@ def delete_tenant(slug: str):
         db.commit()
         if result.rowcount == 0:
             raise HTTPException(404, f"Tenant '{slug}' no encontrado")
+    finally:
+        db.close()
+
+
+# ── Reset mensual (protegido por CRON_SECRET) ────────────────────────────────
+
+@router.post("/admin/reset-monthly")
+def reset_monthly(x_cron_secret: Optional[str] = Header(default=None)):
+    """Resetea req_used y alert_sent_80 de todos los tenants. Llamar el día 1."""
+    expected = os.getenv("CRON_SECRET", "")
+    if not expected or x_cron_secret != expected:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Secreto inválido")
+
+    db = SessionLocal()
+    try:
+        result = db.execute(
+            text("UPDATE sinergy_tenants SET req_used = 0, alert_sent_80 = FALSE")
+        )
+        db.commit()
+        return {"reset": result.rowcount, "status": "ok"}
     finally:
         db.close()
 
