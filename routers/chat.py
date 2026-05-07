@@ -96,6 +96,7 @@ def _save_in_background(
     session_id: str, query_vector: list,
     modo: str = "medio",
     usage: dict | None = None,
+    tenant_slug: str | None = None,
 ):
     def _work():
         try:
@@ -117,6 +118,7 @@ def _save_in_background(
                     cache_read_tokens=usage.get("cache_read_tokens", 0),
                     query_preview=pregunta,
                     topic=topic,
+                    tenant_slug=tenant_slug,
                 )
         except Exception:
             pass
@@ -205,7 +207,8 @@ async def ask_mollo(
         background_tasks.add_task(increment_usage, tenant["id"])
 
     _save_in_background(background_tasks, req.pregunta, respuesta,
-                        req.session_id, query_vector, modo=modo, usage=usage)
+                        req.session_id, query_vector, modo=modo, usage=usage,
+                        tenant_slug=tenant["slug"] if tenant else None)
 
     return {
         "respuesta":          respuesta,
@@ -266,6 +269,7 @@ async def stream_mollo(
             background_tasks, req.pregunta, full_response,
             req.session_id, query_vector,
             modo=modo, usage=stream_usage or None,
+            tenant_slug=tenant["slug"] if tenant else None,
         )
 
     return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")

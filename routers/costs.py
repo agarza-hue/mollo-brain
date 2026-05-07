@@ -47,3 +47,8 @@ def by_provider():
 @router.get("/topic_by_model")
 def topic_by_model():
     return cost_service.topic_by_model()
+
+
+@router.get("/by_tenant")
+def by_tenant():
+    return cost_service.by_tenant()

@@ -93,13 +93,15 @@ def _init():
             baseline_cost    REAL    NOT NULL DEFAULT 0,
             savings          REAL    NOT NULL DEFAULT 0,
             query_preview    TEXT    DEFAULT '',
-            topic            TEXT    DEFAULT 'general'
+            topic            TEXT    DEFAULT 'general',
+            tenant_slug      TEXT    DEFAULT NULL
         )""")
-        # Migration: add topic column to existing DBs
-        try:
-            conn.execute("ALTER TABLE cost_log ADD COLUMN topic TEXT DEFAULT 'general'")
-        except Exception:
-            pass
+        # Migrations: add columns to existing DBs
+        for col, defval in [("topic", "'general'"), ("tenant_slug", "NULL")]:
+            try:
+                conn.execute(f"ALTER TABLE cost_log ADD COLUMN {col} TEXT DEFAULT {defval}")
+            except Exception:
+                pass
         conn.commit()
 
 
@@ -126,6 +128,7 @@ def record(
     cache_read_tokens: int = 0,
     query_preview: str = "",
     topic: str = "general",
+    tenant_slug: Optional[str] = None,
 ):
     """Registra una query y sus tokens reales."""
     norm = _normalize(model)
@@ -137,12 +140,12 @@ def record(
         conn.execute(
             """INSERT INTO cost_log
                (ts, model, modo, input_tokens, output_tokens, cache_read_tokens,
-                actual_cost, baseline_cost, savings, query_preview, topic)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                actual_cost, baseline_cost, savings, query_preview, topic, tenant_slug)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (
                 datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 norm, modo, input_tokens, output_tokens, cache_read_tokens,
-                actual, baseline, savings, query_preview[:80], topic,
+                actual, baseline, savings, query_preview[:80], topic, tenant_slug,
             ),
         )
 
@@ -267,6 +270,30 @@ def topic_by_model() -> list[dict]:
             FROM cost_log
             GROUP BY topic, model
             ORDER BY topic, queries DESC
+        """).fetchall()
+    return [dict(r) for r in rows]
+
+
+def by_tenant() -> list[dict]:
+    """Costo total agrupado por tenant_slug (mes actual y lifetime)."""
+    with _db() as conn:
+        rows = conn.execute("""
+            SELECT
+                COALESCE(tenant_slug, '__internal__') AS tenant_slug,
+                COUNT(*)                              AS queries,
+                SUM(input_tokens)                     AS input_tokens,
+                SUM(output_tokens)                    AS output_tokens,
+                SUM(cache_read_tokens)                AS cache_tokens,
+                SUM(actual_cost)                      AS actual_cost,
+                SUM(baseline_cost)                    AS baseline_cost,
+                SUM(savings)                          AS savings,
+                SUM(CASE WHEN ts >= DATE('now','start of month')
+                         THEN actual_cost ELSE 0 END) AS cost_this_month,
+                SUM(CASE WHEN ts >= DATE('now','start of month')
+                         THEN 1 ELSE 0 END)           AS queries_this_month
+            FROM cost_log
+            GROUP BY tenant_slug
+            ORDER BY actual_cost DESC
         """).fetchall()
     return [dict(r) for r in rows]
 
