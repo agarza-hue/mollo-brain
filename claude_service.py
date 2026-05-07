@@ -93,7 +93,7 @@ def chat_with_rag(
     business_context: str = "",
     learnings_context: str = "",
     topic_memory: str = "",
-) -> str:
+) -> tuple[str, dict]:
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=8096,
@@ -102,7 +102,13 @@ def chat_with_rag(
             pregunta, doc_context, memory_context, business_context, learnings_context, topic_memory
         ),
     )
-    return response.content[0].text
+    usage = {
+        "input_tokens":      response.usage.input_tokens,
+        "output_tokens":     response.usage.output_tokens,
+        "cache_read_tokens": getattr(response.usage, "cache_read_input_tokens", 0),
+        "model": CLAUDE_MODEL,
+    }
+    return response.content[0].text, usage
 
 
 async def stream_chat_with_rag(
@@ -113,6 +119,7 @@ async def stream_chat_with_rag(
     learnings_context: str = "",
     topic_memory: str = "",
 ):
+    import json as _json
     async with async_client.messages.stream(
         model=CLAUDE_MODEL,
         max_tokens=8096,
@@ -123,6 +130,14 @@ async def stream_chat_with_rag(
     ) as stream:
         async for text in stream.text_stream:
             yield text
+        final = await stream.get_final_message()
+        usage = {
+            "input_tokens":      final.usage.input_tokens,
+            "output_tokens":     final.usage.output_tokens,
+            "cache_read_tokens": getattr(final.usage, "cache_read_input_tokens", 0),
+            "model": CLAUDE_MODEL,
+        }
+        yield f"\x03{_json.dumps(usage)}"
 
 
 # ── Agentic loop (con herramientas) ──────────────────────────────────────────
@@ -182,34 +197,48 @@ async def stream_agent(
     learnings_context: str = "",
     topic_memory: str = "",
 ):
-    """Streaming híbrido: muestra progreso de herramientas + respuesta final."""
+    """Streaming real por token + progreso de herramientas.
+
+    Cada iteración abre un stream async: los tokens de texto llegan en tiempo real
+    al cliente mientras el modelo "piensa". Cuando Claude decide usar una herramienta
+    se muestra el nombre, se ejecuta, y el loop continúa con el resultado.
+    """
+    import json as _json
     from tools_service import TOOLS, execute_tool
 
     messages = _build_messages(
         pregunta, doc_context, memory_context, business_context, learnings_context, topic_memory
     )
+    total_input = total_output = 0
 
     for _ in range(MAX_AGENT_ITERATIONS):
-        response = client.messages.create(
+        async with async_client.messages.stream(
             model=CLAUDE_MODEL,
             max_tokens=8096,
             system=_SYSTEM_CACHED,
             tools=TOOLS,
             messages=messages,
-        )
+        ) as stream:
+            # Entregar tokens de texto en tiempo real
+            async for text in stream.text_stream:
+                yield text
 
-        if response.stop_reason == "end_turn":
-            text_blocks = [b.text for b in response.content if hasattr(b, "text")]
-            yield "\n".join(text_blocks) if text_blocks else ""
-            return
+            # Esperar el mensaje completo para leer tool_use blocks y usage
+            final = await stream.get_final_message()
 
-        if response.stop_reason == "tool_use":
-            messages.append({"role": "assistant", "content": response.content})
+        total_input  += final.usage.input_tokens
+        total_output += final.usage.output_tokens
+
+        if final.stop_reason == "end_turn":
+            break
+
+        if final.stop_reason == "tool_use":
+            messages.append({"role": "assistant", "content": final.content})
 
             tool_results = []
-            for block in response.content:
+            for block in final.content:
                 if block.type == "tool_use":
-                    yield f"\n_🔧 Ejecutando: {block.name}…_\n"
+                    yield f"\n_🔧 {block.name}…_\n"
                     result = await execute_tool(block.name, block.input)
                     tool_results.append({
                         "type": "tool_result",
@@ -221,10 +250,18 @@ async def stream_agent(
         else:
             break
 
+    usage = {
+        "input_tokens": total_input,
+        "output_tokens": total_output,
+        "cache_read_tokens": getattr(final.usage, "cache_read_input_tokens", 0),
+        "model": CLAUDE_MODEL,
+    }
+    yield f"\x03{_json.dumps(usage)}"
+
 
 # ── Utilidades ────────────────────────────────────────────────────────────────
 
-def analyze_document(text: str, instruccion: str = "") -> str:
+def analyze_document(text: str, instruccion: str = "") -> tuple[str, dict]:
     prompt = f"""Analiza el siguiente documento empresarial y extrae:
 1. Puntos clave y conclusiones principales
 2. Datos financieros o métricas relevantes (si existen)
@@ -242,4 +279,10 @@ DOCUMENTO:
         system=_SYSTEM_CACHED,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.content[0].text
+    usage = {
+        "input_tokens":      response.usage.input_tokens,
+        "output_tokens":     response.usage.output_tokens,
+        "cache_read_tokens": getattr(response.usage, "cache_read_input_tokens", 0),
+        "model": CLAUDE_MODEL,
+    }
+    return response.content[0].text, usage
