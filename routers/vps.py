@@ -203,11 +203,26 @@ PROCESOS TOP CPU:
 {json.dumps(status['procesos_top_cpu'], ensure_ascii=False, indent=2)}
 """
 
-    respuesta = chat_with_rag(
+    texto, usage = chat_with_rag(
         pregunta=pregunta,
         doc_context=contexto,
     )
-    return {"respuesta": respuesta, "datos_raw": status}
+
+    try:
+        import cost_service
+        cost_service.record(
+            model=usage.get("model", "claude-sonnet-4-6"),
+            modo="vps_ask",
+            input_tokens=usage.get("input_tokens", 0),
+            output_tokens=usage.get("output_tokens", 0),
+            cache_read_tokens=usage.get("cache_read_tokens", 0),
+            query_preview=pregunta,
+            topic="vps_infra",
+        )
+    except Exception:
+        pass
+
+    return {"respuesta": texto, "datos_raw": status}
 
 
 @router.get("/resumen")

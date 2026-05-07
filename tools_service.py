@@ -1,5 +1,5 @@
 """Herramientas que Mollo puede ejecutar — web, VPS, n8n, memoria, divisas."""
-import subprocess, json
+import subprocess, json, os
 import httpx
 from config import N8N_URL, N8N_WEBHOOK_SECRET, BANXICO_TOKEN
 
@@ -176,6 +176,148 @@ TOOLS = [
         },
     },
     {
+        "name": "leer_archivo",
+        "description": (
+            "Lee el contenido de un archivo del proyecto MolloAI. "
+            "Úsalo ANTES de modificar cualquier archivo para ver el código actual. "
+            "Rutas permitidas: /root/projects/mollo-web/ y /root/mollo_brain/"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ruta": {
+                    "type": "string",
+                    "description": "Ruta absoluta del archivo. Ej: /root/projects/mollo-web/app/chat-client.tsx",
+                },
+                "desde_linea": {
+                    "type": "integer",
+                    "description": "Línea desde la que empezar a leer (opcional, default 1)",
+                },
+                "hasta_linea": {
+                    "type": "integer",
+                    "description": "Línea hasta la que leer (opcional, default: todo el archivo)",
+                },
+            },
+            "required": ["ruta"],
+        },
+    },
+    {
+        "name": "escribir_archivo",
+        "description": (
+            "Crea o sobreescribe un archivo del proyecto MolloAI con contenido nuevo. "
+            "SIEMPRE lee el archivo primero con leer_archivo antes de modificarlo. "
+            "Rutas permitidas: /root/projects/mollo-web/ y /root/mollo_brain/"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ruta": {
+                    "type": "string",
+                    "description": "Ruta absoluta del archivo a escribir",
+                },
+                "contenido": {
+                    "type": "string",
+                    "description": "Contenido completo del archivo",
+                },
+            },
+            "required": ["ruta", "contenido"],
+        },
+    },
+    {
+        "name": "bash",
+        "description": (
+            "Ejecuta cualquier comando bash en el VPS de Adolfo. "
+            "Úsalo para: compilar proyectos, reiniciar servicios, leer logs, "
+            "instalar paquetes, manipular archivos, consultar bases de datos, "
+            "operaciones git, inspeccionar procesos y contenedores Docker. "
+            "Comandos útiles de deploy: "
+            "'cd /root/projects/mollo-web && npm run build' para compilar frontend, "
+            "'pm2 restart mollo-web' para reiniciar web, "
+            "'pm2 logs mollo-web --lines 30 --nostream' para ver logs, "
+            "'kill $(lsof -ti:8002) && nohup /root/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8002 --workers 2 > /tmp/brain.log 2>&1 &' para reiniciar brain, "
+            "'docker compose -f /root/projects/juntas-app/docker-compose.yml restart app' para juntas-app."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "comando": {
+                    "type": "string",
+                    "description": "Comando bash completo a ejecutar en el VPS",
+                },
+                "timeout": {
+                    "type": "integer",
+                    "description": "Timeout en segundos (default 60, max 300). Usa 180 para npm build.",
+                },
+            },
+            "required": ["comando"],
+        },
+    },
+    {
+        "name": "buscar_codigo",
+        "description": (
+            "Busca texto, funciones, variables o patrones en el código fuente del VPS. "
+            "Úsalo para encontrar dónde está definida una función, qué archivos usan cierta variable, "
+            "o localizar cualquier string en el codebase."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "patron": {
+                    "type": "string",
+                    "description": "Texto o regex a buscar",
+                },
+                "directorio": {
+                    "type": "string",
+                    "description": "Directorio donde buscar. Default: /root/projects/mollo-web. Ej: /root/mollo_brain",
+                },
+                "extension": {
+                    "type": "string",
+                    "description": "Filtrar por extensión. Ej: ts, py, tsx (sin punto)",
+                },
+            },
+            "required": ["patron"],
+        },
+    },
+    {
+        "name": "git",
+        "description": (
+            "Operaciones git en cualquier proyecto del VPS. "
+            "Operaciones: status, diff, log, add, commit, push, branch, checkout."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "operacion": {
+                    "type": "string",
+                    "description": "Operación: status | diff | log | add <archivo> | commit <mensaje> | push | branch | checkout <rama>",
+                },
+                "directorio": {
+                    "type": "string",
+                    "description": "Directorio del repo. Default: /root/projects/mollo-web",
+                },
+            },
+            "required": ["operacion"],
+        },
+    },
+    {
+        "name": "ejecutar_dev",
+        "description": (
+            "Atajos rápidos para las operaciones de deploy más comunes. "
+            "Comandos: npm_build, pm2_restart, pm2_logs, brain_restart, brain_logs, "
+            "listar_app <subcarpeta>, git_status."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "comando": {
+                    "type": "string",
+                    "description": "Atajo: npm_build | pm2_restart | pm2_logs | brain_restart | brain_logs | listar_app <sub> | git_status",
+                },
+            },
+            "required": ["comando"],
+        },
+    },
+    {
         "name": "guardar_contexto_negocio",
         "description": (
             "Guarda un dato importante sobre el negocio o situación de Adolfo "
@@ -212,6 +354,18 @@ _VPS_COMMANDS: dict[str, str] = {
 
 async def execute_tool(name: str, inputs: dict) -> str:
     try:
+        if name == "leer_archivo":
+            return _leer_archivo(inputs["ruta"], inputs.get("desde_linea"), inputs.get("hasta_linea"))
+        if name == "escribir_archivo":
+            return _escribir_archivo(inputs["ruta"], inputs["contenido"])
+        if name == "bash":
+            return _bash(inputs["comando"], inputs.get("timeout", 60))
+        if name == "buscar_codigo":
+            return _buscar_codigo(inputs["patron"], inputs.get("directorio"), inputs.get("extension"))
+        if name == "git":
+            return _git(inputs["operacion"], inputs.get("directorio"))
+        if name == "ejecutar_dev":
+            return _ejecutar_dev(inputs["comando"])
         if name == "dropbox_listar":
             return _dropbox_listar(inputs.get("carpeta", ""))
         if name == "dropbox_buscar":
@@ -420,6 +574,167 @@ async def _dropbox_analizar(ruta: str, instruccion: str) -> str:
     except Exception as e:
         return f"Error analizando archivo: {e}"
 
+
+_ALLOWED_ROOTS = (
+    "/root/projects",
+    "/root/mollo_brain",
+    "/opt/mollo-gateway",
+    "/root/strategy_os",
+)
+
+def _check_ruta(ruta: str) -> str:
+    ruta = os.path.normpath(ruta)
+    if not any(ruta.startswith(r) for r in _ALLOWED_ROOTS):
+        raise PermissionError(f"Ruta no permitida: {ruta}")
+    return ruta
+
+def _bash(comando: str, timeout: int = 60) -> str:
+    timeout = min(max(timeout, 5), 300)
+    try:
+        result = subprocess.run(
+            comando, shell=True, text=True,
+            capture_output=True, timeout=timeout,
+            env={**os.environ, "TERM": "dumb"},
+        )
+        out = (result.stdout or "") + (result.stderr or "")
+        out = out.strip()
+        if len(out) > 12000:
+            out = out[-12000:]
+            out = "[...salida truncada a las últimas 12000 chars]\n" + out
+        if not out:
+            out = f"(sin salida, código de salida: {result.returncode})"
+        return out
+    except subprocess.TimeoutExpired:
+        return f"⏱ Timeout tras {timeout}s. Usa un timeout mayor o divide el comando."
+    except Exception as e:
+        return f"Error ejecutando bash: {e}"
+
+
+def _buscar_codigo(patron: str, directorio: str | None = None, extension: str | None = None) -> str:
+    base = directorio or "/root/projects/mollo-web"
+    ext_flag = f"--include='*.{extension}'" if extension else ""
+    cmd = (
+        f"grep -rn {ext_flag} --color=never "
+        f"-E '{patron}' "
+        f"'{base}' "
+        f"--exclude-dir=node_modules --exclude-dir=.next --exclude-dir=__pycache__ "
+        f"--exclude-dir=.git 2>/dev/null | head -60"
+    )
+    try:
+        out = subprocess.check_output(cmd, shell=True, text=True, timeout=15)
+        return out.strip() or f"Sin coincidencias para '{patron}' en {base}"
+    except subprocess.CalledProcessError:
+        return f"Sin coincidencias para '{patron}' en {base}"
+    except Exception as e:
+        return f"Error buscando: {e}"
+
+
+def _git(operacion: str, directorio: str | None = None) -> str:
+    repo = directorio or "/root/projects/mollo-web"
+    op   = operacion.strip()
+
+    # Mapeo de operaciones seguras
+    if op == "status":
+        cmd = f"git -C '{repo}' status"
+    elif op == "diff":
+        cmd = f"git -C '{repo}' diff --stat HEAD 2>/dev/null || git -C '{repo}' diff"
+    elif op == "log":
+        cmd = f"git -C '{repo}' log --oneline -20"
+    elif op == "branch":
+        cmd = f"git -C '{repo}' branch -a"
+    elif op.startswith("add "):
+        archivo = op[4:].strip()
+        cmd = f"git -C '{repo}' add '{archivo}'"
+    elif op.startswith("commit "):
+        msg = op[7:].strip()
+        cmd = f"git -C '{repo}' commit -m '{msg}'"
+    elif op == "push":
+        cmd = f"git -C '{repo}' push"
+    elif op.startswith("checkout "):
+        rama = op[9:].strip()
+        cmd = f"git -C '{repo}' checkout '{rama}'"
+    else:
+        cmd = f"git -C '{repo}' {op}"
+
+    return _bash(cmd, timeout=30)
+
+
+def _leer_archivo(ruta: str, desde: int | None = None, hasta: int | None = None) -> str:
+    import os
+    ruta = _check_ruta(ruta)
+    if not os.path.exists(ruta):
+        return f"Archivo no encontrado: {ruta}"
+    with open(ruta, "r", encoding="utf-8", errors="replace") as f:
+        lines = f.readlines()
+    total = len(lines)
+    start = max(0, (desde or 1) - 1)
+    end   = hasta if hasta else total
+    selected = lines[start:end]
+    if len(selected) > 400:
+        selected = selected[:400]
+        truncated = f"\n[... truncado a 400 líneas de {total} totales]"
+    else:
+        truncated = ""
+    numbered = [f"{start + i + 1:4d}  {l}" for i, l in enumerate(selected)]
+    return f"```\n{''.join(numbered)}\n```{truncated}"
+
+def _escribir_archivo(ruta: str, contenido: str) -> str:
+    import os
+    ruta = _check_ruta(ruta)
+    os.makedirs(os.path.dirname(ruta), exist_ok=True)
+    with open(ruta, "w", encoding="utf-8") as f:
+        f.write(contenido)
+    lines = contenido.count("\n") + 1
+    return f"✅ Archivo escrito: {ruta} ({lines} líneas)"
+
+_DEV_COMMANDS: dict[str, str] = {
+    "npm_build":      "cd /root/projects/mollo-web && npm run build 2>&1",
+    "pm2_restart":    "pm2 restart mollo-web && pm2 status mollo-web 2>&1",
+    "pm2_logs":       "pm2 logs mollo-web --lines 30 --nostream 2>&1",
+    "brain_restart":  (
+        "kill $(lsof -ti:8002) 2>/dev/null; sleep 1; "
+        "nohup /root/venv/bin/python -m uvicorn main:app "
+        "--host 0.0.0.0 --port 8002 --workers 2 "
+        "> /tmp/mollo_brain.log 2>&1 & sleep 3 && "
+        "curl -s http://localhost:8002/health"
+    ),
+    "brain_logs":     "tail -60 /tmp/mollo_brain.log 2>&1",
+    "git_status":     "cd /root/projects/mollo-web && git status 2>&1 || echo 'Sin git'",
+}
+
+def _ejecutar_dev(comando: str) -> str:
+    parts   = comando.strip().split(None, 1)
+    cmd_key = parts[0].lower()
+    arg     = parts[1] if len(parts) > 1 else ""
+
+    if cmd_key == "listar_app":
+        base   = "/root/projects/mollo-web"
+        folder = f"{base}/{arg.strip('/')}" if arg else base
+        folder = os.path.normpath(folder)
+        if not folder.startswith(base):
+            return "Ruta no permitida"
+        cmd = f"find {folder} -maxdepth 2 -not -path '*/node_modules/*' -not -path '*/.next/*' | sort"
+        try:
+            return subprocess.check_output(cmd, shell=True, text=True, timeout=15).strip()
+        except Exception as e:
+            return f"Error: {e}"
+
+    if cmd_key not in _DEV_COMMANDS:
+        return (
+            f"Comando '{cmd_key}' no reconocido. "
+            f"Disponibles: {', '.join(list(_DEV_COMMANDS.keys()) + ['listar_app <subcarpeta>'])}"
+        )
+
+    cmd = _DEV_COMMANDS[cmd_key]
+    try:
+        output = subprocess.check_output(
+            cmd, shell=True, text=True, stderr=subprocess.STDOUT, timeout=120
+        )
+        return output.strip()[-3000:] or "(sin salida)"
+    except subprocess.CalledProcessError as e:
+        return f"Error (código {e.returncode}):\n{e.output.strip()[-2000:]}"
+    except subprocess.TimeoutExpired:
+        return "Timeout: el comando tardó más de 120 segundos"
 
 def _dropbox_subir(ruta_local: str, destino: str) -> str:
     try:

@@ -4,3 +4,7 @@ __pycache__/
 .env
 mollo_memory.json
 *.log
+*.bak
+.agents/
+.claude/
+skills-lock.json
