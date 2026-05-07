@@ -35,7 +35,9 @@ def save_turn(
         "mollo_summary": summary,
     }
     data["conversaciones"].append(entry)
-    data["conversaciones"] = data["conversaciones"][-200:]
+    # Qdrant tiene el historial semántico completo — aquí solo guardamos
+    # los últimos 20 como fallback cuando Qdrant no devuelve resultados.
+    data["conversaciones"] = data["conversaciones"][-20:]
     _save(data)
 
     # Guardar respuesta completa en Qdrant para recuperación semántica
@@ -64,6 +66,12 @@ def save_learning(topic: str, insight: str):
         "tema": topic,
         "insight": insight,
     })
+    # Deduplicar por tema (última versión gana) y limitar a 100 entradas únicas.
+    # Sin esto el archivo crece indefinidamente — cada conversación añade 1 entrada.
+    seen: dict[str, dict] = {}
+    for entry in data["aprendizajes"]:
+        seen[entry["tema"]] = entry
+    data["aprendizajes"] = list(seen.values())[-100:]
     _save(data)
 
 
