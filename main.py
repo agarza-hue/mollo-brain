@@ -12,7 +12,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 
 from qdrant_service import ensure_collection, ensure_memory_collection, ensure_chatgpt_collection, collection_stats
 from routers import documents, chat, memory, vps, tasks, costs, limits, tenants
-from routers import auth_router, convs_router
+from routers import auth_router, convs_router, workspaces
 from routers import billing
 
 
@@ -42,6 +42,7 @@ app.add_middleware(
 
 app.include_router(auth_router.router)
 app.include_router(convs_router.router)
+app.include_router(workspaces.router)
 app.include_router(documents.router)
 app.include_router(chat.router)
 app.include_router(memory.router)

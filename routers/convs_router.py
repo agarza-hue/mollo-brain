@@ -33,8 +33,17 @@ with engine.connect() as conn:
             created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
         )
     """))
+    # ── Workspace assignment (additive, nullable) ──────────────────────────
+    # Added 2026-05-08 to support Mollo OS workspace organization. Backward
+    # compatible: existing convs keep workspace_id = NULL until assigned.
+    conn.execute(text(
+        "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS workspace_id TEXT"
+    ))
     conn.execute(text(
         "CREATE INDEX IF NOT EXISTS idx_convs_user ON conversations(user_id, updated_at DESC)"
+    ))
+    conn.execute(text(
+        "CREATE INDEX IF NOT EXISTS idx_convs_ws ON conversations(workspace_id) WHERE workspace_id IS NOT NULL"
     ))
     conn.execute(text(
         "CREATE INDEX IF NOT EXISTS idx_msgs_conv  ON conv_messages(conversation_id, created_at)"
@@ -58,7 +67,7 @@ def list_convs(
 ):
     """Lista las últimas N conversaciones con sus mensajes."""
     convs = db.execute(text("""
-        SELECT id, title, created_at, updated_at
+        SELECT id, title, workspace_id, created_at, updated_at
         FROM conversations
         WHERE user_id = :uid
         ORDER BY updated_at DESC
@@ -107,14 +116,35 @@ def update_conv(
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
+    """Update conv fields: title and/or workspace_id.
+    workspace_id can be a string (assign), null (unassign), or omitted (no change).
+    """
     title = body.get("title")
+    set_workspace = "workspace_id" in body
+    workspace_id = body.get("workspace_id")  # may be None for unassign
+
+    sets = []
+    params: dict[str, Any] = {"id": cid, "uid": str(user["id"])}
     if title:
-        db.execute(text("""
+        sets.append("title = :title")
+        params["title"] = title
+    if set_workspace:
+        sets.append("workspace_id = :wsid")
+        params["wsid"] = workspace_id
+
+    if not sets:
+        return {"ok": True}
+
+    sets.append("updated_at = NOW()")
+    db.execute(
+        text(f"""
             UPDATE conversations
-            SET title = :title, updated_at = NOW()
+            SET {", ".join(sets)}
             WHERE id = :id AND user_id = :uid
-        """), {"title": title, "id": cid, "uid": str(user["id"])})
-        db.commit()
+        """),
+        params,
+    )
+    db.commit()
     return {"ok": True}
 
 
