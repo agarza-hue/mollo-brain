@@ -6,6 +6,7 @@ from typing import Any
 
 from db import get_db
 from auth import get_current_user
+from routers.events import event_broker
 
 router = APIRouter(prefix="/convs", tags=["Conversaciones"])
 
@@ -106,6 +107,10 @@ def create_conv(
         ON CONFLICT (id) DO NOTHING
     """), {"id": cid, "uid": str(user["id"]), "title": title})
     db.commit()
+    event_broker.publish({
+        "type": "conv.created",
+        "payload": {"id": cid, "title": title, "user_id": str(user["id"])},
+    })
     return {"id": cid, "title": title}
 
 
@@ -157,6 +162,10 @@ def delete_conv(
     db.execute(text("""
         DELETE FROM conversations WHERE id = :id AND user_id = :uid
     """), {"id": cid, "uid": str(user["id"])})
+    event_broker.publish({
+        "type": "conv.deleted",
+        "payload": {"id": cid, "user_id": str(user["id"])},
+    })
     db.commit()
 
 

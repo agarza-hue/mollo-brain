@@ -8,6 +8,7 @@ from task_engine import (
     TaskEngine, register_task, get_task_definition,
     list_task_definitions, get_run, list_runs,
 )
+from routers.events import event_broker
 
 router = APIRouter(prefix="/tasks", tags=["Tasks"])
 
@@ -44,7 +45,20 @@ async def run_task(req: TaskRunRequest):
     task = get_task_definition(req.task_id)
     if not task:
         raise HTTPException(404, f"Task '{req.task_id}' not found")
+    event_broker.publish({
+        "type": "task.started",
+        "payload": {"task_id": req.task_id, "dry_run": bool(req.dry_run)},
+    })
     result = await TaskEngine.execute(task, req.context, dry_run=req.dry_run)
+    event_broker.publish({
+        "type": "task.finished",
+        "payload": {
+            "task_id": req.task_id,
+            "run_id": result.run_id,
+            "status": result.status,
+            "steps_completed": result.steps_completed,
+        },
+    })
     return result.model_dump()
 
 
@@ -53,7 +67,20 @@ async def dry_run_task(req: TaskRunRequest):
     task = get_task_definition(req.task_id)
     if not task:
         raise HTTPException(404, f"Task '{req.task_id}' not found")
+    event_broker.publish({
+        "type": "task.started",
+        "payload": {"task_id": req.task_id, "dry_run": True},
+    })
     result = await TaskEngine.execute(task, req.context, dry_run=True)
+    event_broker.publish({
+        "type": "task.finished",
+        "payload": {
+            "task_id": req.task_id,
+            "run_id": result.run_id,
+            "status": result.status,
+            "steps_completed": result.steps_completed,
+        },
+    })
     return result.model_dump()
 
 
