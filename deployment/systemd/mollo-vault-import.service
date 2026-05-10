@@ -1,0 +1,12 @@
+[Unit]
+Description=Mollo Obsidian Vault Import — sync Dropbox vault to Qdrant RAG
+After=network-online.target mollo-brain.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/mollo_brain
+ExecStart=/root/venv/bin/python -m import_obsidian_vault
+StandardOutput=append:/var/log/mollo-vault-import.log
+StandardError=append:/var/log/mollo-vault-import.log
+TimeoutStartSec=300

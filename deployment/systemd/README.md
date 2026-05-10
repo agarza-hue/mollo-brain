@@ -10,6 +10,7 @@ Versionadas para reproducibilidad del setup en caso de reinstalación o fork.
 | `mollo-brain.service` | servicio long-running | always | `/root/mollo_brain/` | FastAPI puerto 8002 — backend principal |
 | `mollo-briefing.service` + `.timer` | oneshot + timer | 06:00 CDMX diario | `/root/mollo_brain/` | Daily brief vía Telegram (Claude Sonnet) |
 | `mollo-claude-import.service` + `.timer` | oneshot + timer | cada 5 min | `/root/mollo_brain/` | Import transcripts Claude Code → cost_log |
+| `mollo-vault-import.service` + `.timer` | oneshot + timer | cada 15 min | `/root/mollo_brain/` | Sync Obsidian vault (Dropbox `/Obsidian/vault/`) → Qdrant RAG `categoria='vault'` |
 | `mollo-gateway.service` | servicio long-running | always | `/opt/mollo-gateway/` | Gateway puerto 8100 (NO está en este repo) |
 | `mollo-telegram.service` | servicio long-running | always | `/opt/mollo-telegram/` | Bot Telegram `@mollo_adolfo_bot` (NO está en este repo) |
 | `mollo-autonomo.service` | servicio long-running | always | `/opt/mollo-telegram/` | Tareas autónomas + alertas VPS |

@@ -1,0 +1,11 @@
+[Unit]
+Description=Mollo Vault Import — every 15 min
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=mollo-vault-import.service
+
+[Install]
+WantedBy=timers.target
