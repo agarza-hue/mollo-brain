@@ -399,6 +399,9 @@ async def stream_mollo(
     if tenant:
         collected: list[str] = []
         stream_usage: dict = {}
+        # Captura el modo desde el header \x02{modo}:{label}\n que emite
+        # orchestrate_tenant — antes lo guardábamos como `modo=<modelo>` por bug.
+        captured_modo: dict = {"value": None}
 
         async def generate_tenant():
             async for chunk in orchestrate_tenant(
@@ -411,6 +414,13 @@ async def stream_mollo(
                     except Exception:
                         pass
                     continue
+                # Header de modo va al cliente (UI lo lee) Y lo capturamos
+                # para registrarlo correctamente en cost_log
+                if chunk.startswith("\x02") and captured_modo["value"] is None:
+                    nl = chunk.find("\n")
+                    meta = chunk[1:nl] if nl != -1 else chunk[1:]
+                    # formato "modo:label" — sólo nos interesa el modo
+                    captured_modo["value"] = meta.split(":", 1)[0] or None
                 collected.append(chunk)
                 yield chunk
 
@@ -435,7 +445,7 @@ async def stream_mollo(
                         topic  = topics[0] if topics else "general"
                         _cs.record(
                             model=stream_usage.get("model", "gpt-4o-mini"),
-                            modo=stream_usage.get("model", "gpt-4o-mini"),
+                            modo=captured_modo["value"] or req.modo or "tenant",
                             input_tokens=stream_usage.get("input_tokens", 0),
                             output_tokens=stream_usage.get("output_tokens", 0),
                             cache_read_tokens=stream_usage.get("cache_read_tokens", 0),
