@@ -1,0 +1,22 @@
+[Unit]
+Description=Mollo Brain API
+After=network.target ollama.service docker.service
+Requires=docker.service
+
+[Service]
+WorkingDirectory=/root/mollo_brain
+ExecStartPre=/usr/bin/docker start qdrant
+ExecStartPre=/bin/sleep 3
+ExecStart=/root/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8002 --timeout-graceful-shutdown 15
+# Graceful shutdown: SSE/streams get 15s to close; uvicorn forces close after.
+# systemd then waits up to 30s before SIGKILL (was 90s default). Quick restart
+# (1s) so the service is back up almost immediately.
+TimeoutStopSec=30
+Restart=always
+RestartSec=1
+User=root
+StandardOutput=append:/var/log/mollo_brain.log
+StandardError=append:/var/log/mollo_brain.log
+
+[Install]
+WantedBy=multi-user.target

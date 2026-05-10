@@ -1,0 +1,12 @@
+[Unit]
+Description=Import Claude Code JSONL transcripts into mollo cost_log
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/root/mollo_brain
+EnvironmentFile=/root/mollo_brain/.env
+ExecStart=/root/venv/bin/python /root/mollo_brain/import_claude_code_logs.py
+StandardOutput=journal
+StandardError=journal

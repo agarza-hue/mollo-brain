@@ -1,0 +1,13 @@
+[Unit]
+Description=Mollo VPS Monitor
+After=network.target
+
+[Service]
+WorkingDirectory=/opt/mollo-gateway
+ExecStart=/opt/mollo-gateway/venv/bin/python /opt/mollo-gateway/monitor_vps.py
+Restart=always
+RestartSec=10
+User=root
+
+[Install]
+WantedBy=multi-user.target

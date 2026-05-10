@@ -1,0 +1,10 @@
+[Unit]
+Description=Mollo Daily Briefing — schedule 06:00 America/Mexico_City
+
+[Timer]
+OnCalendar=*-*-* 06:00:00
+Persistent=true
+Unit=mollo-briefing.service
+
+[Install]
+WantedBy=timers.target

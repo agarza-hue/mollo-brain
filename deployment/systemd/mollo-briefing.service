@@ -1,0 +1,12 @@
+[Unit]
+Description=Mollo Daily Briefing — generate via Claude + send to Telegram
+After=network-online.target mollo-brain.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/mollo_brain
+ExecStart=/root/venv/bin/python -m briefing_service
+StandardOutput=append:/var/log/mollo-briefing.log
+StandardError=append:/var/log/mollo-briefing.log
+TimeoutStartSec=180

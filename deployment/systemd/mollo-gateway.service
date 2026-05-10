@@ -1,0 +1,13 @@
+[Unit]
+Description=Mollo Gateway API
+After=network.target ollama.service
+
+[Service]
+WorkingDirectory=/opt/mollo-gateway
+ExecStart=/opt/mollo-gateway/venv/bin/uvicorn app:app --host 127.0.0.1 --port 8100
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target
