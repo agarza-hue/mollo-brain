@@ -29,6 +29,28 @@ class TopicUpdate(BaseModel):
 
 # ── Memoria general ───────────────────────────────────────────────────────────
 
+@router.post("/claude-md/refresh")
+def refresh_user_claude_md():
+    """Fuerza re-fetch de CLAUDE.md desde Dropbox vault. Útil tras edición
+    explícita del user (sin esperar el TTL de 5 min)."""
+    from user_context_service import invalidate_cache, get_user_claude_md
+    invalidate_cache()
+    text = get_user_claude_md(force_refresh=True)
+    return {
+        "ok":     True,
+        "chars":  len(text),
+        "preview": text[:200] if text else "",
+    }
+
+
+@router.get("/claude-md")
+def get_user_claude_md_endpoint():
+    """Devuelve el contenido actual de CLAUDE.md (cached). Para debugging."""
+    from user_context_service import get_user_claude_md
+    text = get_user_claude_md()
+    return {"chars": len(text), "text": text}
+
+
 @router.get("/")
 def get_memory():
     return get_all_memory()

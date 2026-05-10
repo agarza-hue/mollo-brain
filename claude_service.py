@@ -123,13 +123,33 @@ REGLAS DE ORO (incumplibles)
 - Si detectás contradicción en la query del user con datos previos: levantá la mano, no asumas
 """
 
-_SYSTEM_CACHED = [
+_SYSTEM_CACHED_STATIC = [
     {
         "type": "text",
         "text": MOLLO_SYSTEM,
         "cache_control": {"type": "ephemeral"},
     }
 ]
+
+
+def _get_system_blocks() -> list[dict]:
+    """Construye los bloques de system prompt: MOLLO_SYSTEM + (opcional) CLAUDE.md
+    del usuario. Cada bloque tiene su propio cache_control — Anthropic los
+    cachea independientemente, así que cuando CLAUDE.md cambie sólo se
+    invalida ese bloque.
+    """
+    from user_context_service import get_user_claude_md_section
+    blocks = list(_SYSTEM_CACHED_STATIC)
+    user_section = get_user_claude_md_section()
+    if user_section:
+        blocks.append({
+            "type": "text",
+            "text": user_section,
+            "cache_control": {"type": "ephemeral"},
+        })
+    return blocks
+
+
 
 
 def _tools_with_cache(tools: list[dict]) -> list[dict]:
@@ -229,7 +249,7 @@ def chat_with_rag(
     topic_memory: str = "",
     system_prompt: str | None = None,
 ) -> tuple[str, dict]:
-    system = [{"type": "text", "text": system_prompt}] if system_prompt else _SYSTEM_CACHED
+    system = [{"type": "text", "text": system_prompt}] if system_prompt else _get_system_blocks()
     try:
         response = client.messages.create(
             model=CLAUDE_MODEL,
@@ -271,7 +291,7 @@ async def stream_chat_with_rag(
     redirige completamente a Gemini 2.5 Pro stream. Una vez empezamos a yieldear
     texto de Claude, no podemos cambiar a otro provider mid-stream."""
     import json as _json
-    system = [{"type": "text", "text": system_prompt}] if system_prompt else _SYSTEM_CACHED
+    system = [{"type": "text", "text": system_prompt}] if system_prompt else _get_system_blocks()
     msgs = _build_messages(
         pregunta, doc_context, memory_context,
         business_context, learnings_context, topic_memory,
@@ -337,7 +357,7 @@ async def run_agent(
         response = client.messages.create(
             model=CLAUDE_MODEL,
             max_tokens=_max_tokens_for(pregunta),
-            system=_SYSTEM_CACHED,
+            system=_get_system_blocks(),
             tools=cached_tools,
             messages=messages,
         )
@@ -393,7 +413,7 @@ async def stream_agent(
         async with async_client.messages.stream(
             model=CLAUDE_MODEL,
             max_tokens=_max_tokens_for(pregunta),
-            system=_SYSTEM_CACHED,
+            system=_get_system_blocks(),
             tools=cached_tools,
             messages=messages,
         ) as stream:
@@ -455,7 +475,7 @@ DOCUMENTO:
     response = client.messages.create(
         model=CLAUDE_MODEL,
         max_tokens=4096,
-        system=_SYSTEM_CACHED,
+        system=_get_system_blocks(),
         messages=[{"role": "user", "content": prompt}],
     )
     usage = {

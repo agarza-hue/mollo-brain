@@ -156,10 +156,22 @@ def _build_full_prompt(
     topic_memory: str,
     system_prompt: str | None,
 ) -> tuple[str, str]:
-    """Construye (system, user) para Gemini Pro replicando el shape de Claude."""
+    """Construye (system, user) para Gemini Pro replicando el shape de Claude.
+    Inyecta CLAUDE.md (contexto personal del user) al final del system prompt
+    si está disponible — mismo patrón que claude_service y openai_brain."""
     # Importamos lazy para no acoplar Gemini brain con Claude brain
     from claude_service import MOLLO_SYSTEM as CLAUDE_MOLLO_SYSTEM
     sys = system_prompt or CLAUDE_MOLLO_SYSTEM
+
+    # Auto-load CLAUDE.md del user (cached 5min). Aplica a tier complejo
+    # (fallback Gemini Pro), NO a tier ligero (chat_gemini básico).
+    try:
+        from user_context_service import get_user_claude_md_section
+        user_section = get_user_claude_md_section()
+        if user_section:
+            sys = f"{sys}\n\n{user_section}"
+    except Exception:
+        pass
 
     parts = []
     if business_context:

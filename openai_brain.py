@@ -183,6 +183,20 @@ def _max_tokens_for(question: str, model: str) -> int:
     return GPT4O_DEFAULT_MAX
 
 
+def _system_with_user_md(base_system: str) -> str:
+    """Prepende CLAUDE.md (contexto personal del user) al system prompt.
+    OpenAI auto-cachea prefijos idénticos ≥1024 tok — al ser CLAUDE.md
+    estable durante 5min (TTL), el cache se mantiene caliente entre requests."""
+    try:
+        from user_context_service import get_user_claude_md_section
+        section = get_user_claude_md_section()
+        if section:
+            return f"{base_system}\n\n{section}"
+    except Exception:
+        pass
+    return base_system
+
+
 def _build_messages(
     pregunta: str,
     doc_context: str = "",
@@ -211,8 +225,9 @@ def _build_messages(
         parts.append(f"DOCUMENTOS RELEVANTES:\n{doc_context}")
     parts.append(f"PREGUNTA: {pregunta}")
 
+    final_system = _system_with_user_md(system_prompt or MOLLO_SYSTEM)
     return [
-        {"role": "system", "content": system_prompt or MOLLO_SYSTEM},
+        {"role": "system", "content": final_system},
         {"role": "user",   "content": "\n\n".join(parts)},
     ]
 
@@ -239,8 +254,9 @@ def _build_agent_messages(
         parts.append(f"DOCUMENTOS RELEVANTES:\n{doc_context}")
     parts.append(f"PREGUNTA DE ADOLFO: {pregunta}")
 
+    final_system = _system_with_user_md(MOLLO_SYSTEM_AGENT)
     return [
-        {"role": "system", "content": MOLLO_SYSTEM_AGENT},
+        {"role": "system", "content": final_system},
         {"role": "user",   "content": "\n\n".join(parts)},
     ]
 
