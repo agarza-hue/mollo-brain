@@ -1,0 +1,12 @@
+[Unit]
+Description=Mollo Readwise Import — sync highlights + Reader docs to Qdrant RAG
+After=network-online.target mollo-brain.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/root/mollo_brain
+ExecStart=/root/venv/bin/python -m import_readwise
+StandardOutput=append:/var/log/mollo-readwise-import.log
+StandardError=append:/var/log/mollo-readwise-import.log
+TimeoutStartSec=600

@@ -1,0 +1,11 @@
+[Unit]
+Description=Mollo Readwise Import — every 1 hour
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+Unit=mollo-readwise-import.service
+
+[Install]
+WantedBy=timers.target

@@ -1,29 +1,28 @@
 {
   "finanzas": {
-    "resumen": "Se busca entrar al mercado estadounidense con $50,000 USD en ingresos antes de diciembre de 2026, y se evalúa convertirse en proveedor de software a medida o SaaS. Es importante mejorar la gestión financiera y la alineación de costos.",
+    "resumen": "Se busca entrar al mercado estadounidense con $50,000 USD en ingresos antes de diciembre de 2026, y se evalúa convertirse en proveedor de software a medida o SaaS. Se propuso mejorar la gestión financiera y la alineación de costos. Es importante establecer un plan claro de organización y hábitos de lectura para comenzar a utilizar un lector como Reader de manera efectiva.",
     "hechos_clave": [
       "El sistema `mollo_brain` sigue sin responder y requiere atención inmediata.",
       "Se evalúa la opción de convertirse en proveedor de software a medida o SaaS y se propone mejorar la gestión financiera y la alineación de costos.",
-      "Se proponen KPIs para medir la productividad de un equipo de ventas remoto.",
-      "Meta de clientes fin de año: 5.",
-      "Brecha hasta la meta de clientes fin de año: 2 clientes nuevos.",
-      "Meta USA: $50,000 USD antes de diciembre de 2026",
+      "Meta de ingresos en el mercado estadounidense: $50,000 USD antes de diciembre de 2026.",
       "Ticket promedio: $25,000 MXN / $1,433 USD",
       "Proyectos activos: MolloIA, Juntas App y SinergyOS",
-      "Prioridad estratégica para hoy: 'Decidir si entrar a USA como proveedor de software a medida o como SaaS.'"
+      "Prioridad estratégica para hoy: 'Decidir si entrar a USA como proveedor de software a medida o como SaaS.'",
+      "Meta de clientes fin de año: 5.",
+      "Brecha hasta la meta de clientes fin de año: 2 clientes nuevos."
     ],
     "pendientes": [
       "Decidir si entrar a USA como proveedor de software a medida o como SaaS.",
-      "Desarrollo del Programa de Referidos.",
-      "Revisar el documento financiero [tmpukot3w3o.txt] para comprender los costos asociados.",
       "Crear un plan financiero Q2 2026 con OKRs.",
-      "Reinicio y monitoreo del servicio `mollo_brain`"
+      "Reinicio y monitoreo del servicio `mollo_brain`",
+      "Desarrollo del Programa de Referidos.",
+      "Revisar el documento financiero [tmpukot3w3o.txt] para comprender los costos asociados."
     ],
-    "actualizado": "2026-05-09T22:43:17.842707",
-    "conversaciones_procesadas": 73
+    "actualizado": "2026-05-09T23:18:37.999622",
+    "conversaciones_procesadas": 74
   },
   "estrategia": {
-    "resumen": "Requiere atención inmediata el servicio 'mollo_brain', que continúa sin respuesta. Necesitamos definir estrategia, objetivos de negocio, OKRs, KPIs y planes de crecimiento. Adicionalmente, se discutió sobre el sistema de routing multi-provider con enrutamiento de cinco niveles o tiers. Este sistema busca manejar el tráfico, optimizar el caching y maximizar la eficiencia y capacidad del sistema.",
+    "resumen": "El servicio 'mollo_brain' sigue sin respuesta, requiere atención inmediata. Necesitamos definir estrategia, objetivos de negocio y planes de crecimiento. Se discutió sobre el sistema de routing multi-provider. Adolfo preguntó sobre cómo empezar con Reader y Mollo proporcionó una estrategia.",
     "hechos_clave": [
       "El servicio 'mollo_brain' sigue sin respuesta y requiere atención inmediata.",
       "El objetivo es generar $50,000 USD en ingresos desde clientes de USA antes de diciembre de 2026.",
@@ -33,7 +32,9 @@
       "La RAM está en 58,6% de uso.",
       "El VPS tiene 21 contenedores activos.",
       "El disco está en 80% de uso.",
-      "Se está construyendo un sistema multi-provider con un enrutamiento de cinco niveles o tiers"
+      "Se está construyendo un sistema multi-provider con un enrutamiento de cinco niveles o tiers.",
+      "Se necesita crear colecciones o categorías en Reader para clasificar el material por tema, urgencia o formato.",
+      "Se necesita priorizar contenido relevante para los proyectos y establecer hábitos de lectura"
     ],
     "pendientes": [
       "Crear Manual de Identidad Corporativa para BION Business",
@@ -42,10 +43,12 @@
       "Definir planes de crecimiento para los próximos 6 meses",
       "Desarrollar plan de ingreso al mercado estadounidense",
       "Revisar el diseño actual de routing",
-      "Monitorear el rendimiento del sistema multi-provider"
+      "Monitorear el rendimiento del sistema multi-provider",
+      "Desarrollar plan de ingreso al mercado estadounidense",
+      "Crear manual de Reader para Adolfo"
     ],
-    "actualizado": "2026-05-09T22:43:18.421391",
-    "conversaciones_procesadas": 161
+    "actualizado": "2026-05-09T23:18:38.609360",
+    "conversaciones_procesadas": 162
   },
   "ventas": {
     "resumen": "BION Business busca generar $50,000 USD en revenue en el mercado estadounidense para diciembre 2026. La estrategia en LATAM incluye adquirir clientes en México, Colombia y Chile. Se están trazando KPIs para evaluar la productividad de los equipos de ventas y programadores. Se necesita cerrar 2 nuevos clientes en 90 días.",
@@ -71,16 +74,14 @@
     "conversaciones_procesadas": 115
   },
   "vps_infra": {
-    "resumen": "El servicio crítico 'mollo_brain' sigue sin responder, afectando el rendimiento del VPS. Se requiere vigilancia a la capacidad del disco al 80%. Se analiza el diseño de routing de 5 tiers.",
+    "resumen": "El servicio crítico '`mollo_brain` sigue sin responder, afectando el rendimiento del VPS. Es necesario reiniciar el servicio y revisar los logs para diagnosticar la falla.",
     "hechos_clave": [
       "El servicio `mollo_brain` sigue sin responder.",
       "El uso de CPU es de 43.5% y el disco está al 80% de capacidad.",
       "La RAM está en 58.6% de uso.",
       "El VPS tiene 21 contenedores activos.",
       "Funcionan correctamente los servicios `strategy_os`, `qdrant`, `n8n`.",
-      "El proyecto MolloIA comercializa planes Pro y Team a $19/mes y $49/asiento, respectivamente.",
-      "El proyecto Juntas App está en la fase 6 y 7 del roadmap con Next.js+Prisma+Postgres.",
-      "El proyecto SinergyOS tiene una identidad v3 definida y configurada."
+      "Se requiere establecer un plan claro de organización y hábitos de lectura con Reader."
     ],
     "pendientes": [
       "Reiniciar `mollo_brain`",
@@ -89,10 +90,11 @@
       "Entregar entregables para clientes B2B de SinergyOS",
       "Revisar el uso de disco y tomar medidas para evitar sobrepasar el 85% de capacidad",
       "Revisar el diseño actual de routing",
-      "Monitorear el rendimiento del sistema multi-provider"
+      "Monitorear el rendimiento del sistema multi-provider",
+      "Establecer un plan claro de organización y hábitos de lectura con Reader"
     ],
-    "actualizado": "2026-05-09T22:43:18.989199",
-    "conversaciones_procesadas": 177
+    "actualizado": "2026-05-09T23:18:39.049902",
+    "conversaciones_procesadas": 178
   },
   "rrhh": {
     "resumen": "El equipo de RRHH está trabajando en la expansión hacia LATAM y valorando la entrada al mercado de USA, buscando generar $50,000 USD en revenue de clientes estadounidenses antes de diciembre de 2026.",
@@ -117,27 +119,27 @@
     "conversaciones_procesadas": 41
   },
   "proyectos": {
-    "resumen": "Adolfo está considerando expandir BION Business hacia el mercado estadounidense con el objetivo de generar $50,000 USD en ingresos desde clientes de USA antes de diciembre 2026.",
+    "resumen": "Adolfo considera expandir BION Business hacia el mercado estadounidense, con un objetivo de generar $50,000 USD en ingresos antes de diciembre 2026, y debe definir OKRs para Q2. También debe decidir cómo empezar con Reader de manera efectiva.",
     "hechos_clave": [
       "Adolfo busca generar $50,000 USD en revenue desde clientes estadounidenses antes de diciembre 2026.",
       "La expansión a USA se realizará sin abrir entidad legal en la primera fase.",
+      "Ticket promedio: $25,000 MXN / $1,433 USD",
       "Meta de clientes fin de año en software a medida: 5",
       "Meta USA: $50,000 USD antes de dic 2026",
-      "Ticket promedio: $25,000 MXN / $1,433 USD",
-      "Meta de clientes nuevos: 2",
-      "La entrada a USA se realizará via software a medida vs. SaaS.",
-      "OKRs para Q2: Pendientes de definición"
+      "Meta de clientes nuevos: 2"
     ],
     "pendientes": [
       "Definir el modelo de entrada a USA",
       "Determinar OKRs para Q2",
-      "Definir OKR para Q2"
+      "Definir OKR para Q2",
+      "Estructurar un plan para empezar con Reader de manera efectiva",
+      "Priorizar el contenido en Reader"
     ],
-    "actualizado": "2026-05-09T22:16:17.231664",
-    "conversaciones_procesadas": 98
+    "actualizado": "2026-05-09T23:18:47.486405",
+    "conversaciones_procesadas": 99
   },
   "automatizacion": {
-    "resumen": "La automatización y aplicación de IA para BION Business sigue en curso, pero se enfrentan desafíos con el servicio 'mollo_brain' sin respuesta y el VPS con rendimiento insuficiente. Es necesario mejorar la configuración de routing y aumentar la capacidad del sistema. Es necesario revisar el diseño actual de routing y monitorear el rendimiento para optimizar la eficiencia y capacidad del sistema.",
+    "resumen": "El proceso de automatización e IA para BION Business sigue en curso, con necesidades de mejorar la configuración de routing, aumentar la capacidad del sistema y revisar el diseño actual de routing.",
     "hechos_clave": [
       "Meta de ingreso mensual estimada: ~$75,000 MXN",
       "Uso de CPU actual: 29%",
@@ -146,18 +148,22 @@
       "Contenedores activos: 21",
       "Ticket promedio: $25,000 MXN / $1,433 USD",
       "Clientes activos: 3",
-      "El servicio 'mollo_brain' no responde",
-      "Necesidad de mejorar el rendimiento del VPS"
+      "Necesidad de mejorar el rendimiento del VPS",
+      "Reader te permite agregar fácilmente lecturas destacadas desde la comunidad de Readwise",
+      "El servicio 'mollo_brain' no responde"
     ],
     "pendientes": [
       "Crear plan financiero Q2 documentado",
       "Definir estrategia para aumentar la brecha de clientes",
       "Revisar código del servicio 'mollo_brain'",
       "Diagnosticar problema persistente con 'mollo_brain'",
-      "Revisar el diseño actual de routing y monitorear el rendimiento"
+      "Revisar el diseño actual de routing y monitorear el rendimiento",
+      "Crear colecciones o categorías para clasificar material en Reader",
+      "Identificar contenido esencial consumir primero en Reader",
+      "Revisar y optimizar configuración de routing"
     ],
-    "actualizado": "2026-05-09T22:43:30.491009",
-    "conversaciones_procesadas": 207
+    "actualizado": "2026-05-09T23:19:10.341898",
+    "conversaciones_procesadas": 209
   },
   "iso9001": {
     "resumen": "La ISO 9001 es una norma internacional clave para la gestión de calidad enfocada en la mejora continua y satisfacer al cliente. InsForge busca generar $50,000 USD en ingresos de clientes estadounidenses antes de diciembre 2026. El servicio `mollo_brain` sigue con problemas y necesita un diagnóstico detallado. BION Business busca eliminar la desalineación entre Personas, Sistemas y Procesos en las organizaciones.",
