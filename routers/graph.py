@@ -104,17 +104,47 @@ def _build_graph(top_k_per_node: int = 5, min_score: float = 0.6,
         # Source label: el filename cuando es archivo, primera línea cuando es chunk de chat
         src = pl.get("source") or pl.get("filename") or pl.get("title") or ""
         if src and "/" in src:
-            short = src.rsplit("/", 1)[-1]  # solo basename
+            short = src.rsplit("/", 1)[-1]
         else:
-            short = src or pl.get("text", "")[:40]
+            short = src
+        # Fallback para chunks sin source (memoria de chats típicamente).
+        # Schema memoria: {usuario, mollo, mollo_summary, fecha, session_id}.
+        # Schema RAG empresa: {source, text, categoria, ...}.
+        if not short or short.strip() == "":
+            candidates = [
+                pl.get("text"),                    # docs RAG empresa
+                pl.get("mollo_summary"),           # memoria de chats — preferir summary
+                pl.get("usuario"),                 # memoria — pregunta del user
+                pl.get("mollo"),                   # memoria — respuesta de Mollo
+            ]
+            for c in candidates:
+                if c and isinstance(c, str) and c.strip():
+                    txt = c.strip().replace("\n", " ")
+                    short = (txt[:55] + "…") if len(txt) > 55 else txt
+                    break
+        if not short:
+            short = "(sin título)"
+
+        # Preview también soporta el schema dual
+        preview_candidates = [
+            pl.get("text"),
+            pl.get("mollo_summary"),
+            (pl.get("usuario") or "") + ("\n\nMollo: " + (pl.get("mollo") or "") if pl.get("mollo") else ""),
+        ]
+        preview = ""
+        for c in preview_candidates:
+            if c and isinstance(c, str) and c.strip():
+                preview = c[:300]
+                break
+
         cat = pl.get("categoria") or ("memoria" if p["collection"] == QDRANT_MEMORY_COLLECTION else "default")
         nodes.append({
             "id":        nid,
-            "label":     short[:60],
+            "label":     short[:80],
             "categoria": cat,
             "color":     _color_for(cat),
-            "source":    src,
-            "preview":   (pl.get("text") or "")[:200],
+            "source":    src or (f"chat:{pl.get('fecha','')[:10]}" if cat == "memoria" else ""),
+            "preview":   preview,
             "collection": p["collection"],
         })
 
@@ -157,6 +187,8 @@ def _build_graph(top_k_per_node: int = 5, min_score: float = 0.6,
     elapsed = time.monotonic() - t0
     logger.info("graph: %d nodes, %d edges en %.2fs", len(nodes), len(edges), elapsed)
 
+    interpretation = _interpret(nodes, edges)
+
     return {
         "nodes":          nodes,
         "edges":          edges,
@@ -164,6 +196,130 @@ def _build_graph(top_k_per_node: int = 5, min_score: float = 0.6,
         "edge_count":     len(edges),
         "build_time_sec": round(elapsed, 2),
         "params":         {"top_k_per_node": top_k_per_node, "min_score": min_score, "max_nodes": max_nodes},
+        "interpretation": interpretation,
+    }
+
+
+def _interpret(nodes: list, edges: list) -> dict:
+    """Stats simples + recomendaciones rule-based para el panel del frontend.
+    NO usa LLM — esto se llama en cada cache miss y debe ser instantáneo."""
+    from collections import Counter, defaultdict
+    if not nodes:
+        return {
+            "summary": "Cerebro vacío. Empieza a indexar contenido (vault, readwise, docs).",
+            "stats": {}, "recommendations": [],
+        }
+
+    # ── Distribución por categoria ──
+    cat_counts = Counter(n["categoria"] for n in nodes)
+    total = len(nodes)
+    dominante = cat_counts.most_common(1)[0]
+
+    # ── Degree por nodo (cuántos edges toca) ──
+    degree: dict = defaultdict(int)
+    for e in edges:
+        s = e["source"] if isinstance(e["source"], str) else e["source"].get("id")
+        t = e["target"] if isinstance(e["target"], str) else e["target"].get("id")
+        if s: degree[s] += 1
+        if t: degree[t] += 1
+
+    nodes_by_id = {n["id"]: n for n in nodes}
+
+    # Top 3 nodos más conectados (hubs)
+    top_hubs = sorted(degree.items(), key=lambda x: -x[1])[:3]
+    hubs = []
+    for nid, deg in top_hubs:
+        n = nodes_by_id.get(nid)
+        if n:
+            hubs.append({
+                "label":     n["label"],
+                "categoria": n["categoria"],
+                "degree":    deg,
+                "source":    n.get("source", ""),
+            })
+
+    # Nodos huérfanos (degree 0)
+    orphans = sum(1 for n in nodes if degree[n["id"]] == 0)
+
+    # Densidad
+    max_possible_edges = (total * (total - 1)) // 2
+    density = (len(edges) / max_possible_edges * 100) if max_possible_edges else 0
+
+    # ── Recomendaciones rule-based ──
+    recs = []
+    # 1. Categoría dominante > 70% → sesgo
+    pct_dominante = (dominante[1] / total) * 100
+    if pct_dominante > 70:
+        recs.append({
+            "type": "warning",
+            "msg":  f"`{dominante[0]}` representa el {pct_dominante:.0f}% del cerebro. Diversifica las fuentes (vault, readwise, docs)."
+        })
+
+    # 2. Vault sub-representado
+    vault_count = cat_counts.get("vault", 0)
+    if vault_count < 5:
+        recs.append({
+            "type": "tip",
+            "msg":  f"Solo {vault_count} chunks del vault Obsidian. Captura más notas en `inbox/`, `ideas/`, `notes/` para enriquecer el grafo."
+        })
+
+    # 3. Readwise sub-utilizado
+    rw_count = cat_counts.get("readwise", 0)
+    if rw_count < 10:
+        recs.append({
+            "type": "tip",
+            "msg":  f"Solo {rw_count} highlights de Readwise. Empieza a guardar artículos y resaltar pasajes — cada highlight conecta tu memoria a literatura externa."
+        })
+
+    # 4. Huérfanos altos
+    pct_orphans = (orphans / total) * 100
+    if pct_orphans > 20:
+        recs.append({
+            "type": "warning",
+            "msg":  f"{orphans} nodos ({pct_orphans:.0f}%) están aislados — sin conexiones semánticas. Probable: contenido off-topic o duplicados degradados. Sube `min_score` para filtrar."
+        })
+
+    # 5. Densidad muy alta
+    if density > 5:
+        recs.append({
+            "type": "info",
+            "msg":  f"Densidad alta ({density:.1f}%): grafo tupido. Sube `min_score` a 0.85+ para ver clusters reales."
+        })
+    elif density < 0.3:
+        recs.append({
+            "type": "info",
+            "msg":  f"Densidad baja ({density:.2f}%): grafo disperso. Baja `min_score` para ver más conexiones débiles."
+        })
+
+    # 6. Hub principal — qué dice de tu thinking
+    if hubs:
+        top = hubs[0]
+        recs.append({
+            "type": "insight",
+            "msg":  f"Tu hub principal es **{top['label']}** ({top['categoria']}, {top['degree']} conexiones). Es el centro de gravedad de tu thinking actual."
+        })
+
+    # ── Summary natural ──
+    cats_resumen = ", ".join(f"{c[0]} ({c[1]})" for c in cat_counts.most_common(4))
+    summary = (
+        f"{total} nodos en {len(cat_counts)} categorías ({cats_resumen}). "
+        f"{len(edges)} conexiones semánticas, densidad {density:.2f}%. "
+        f"{orphans} huérfanos."
+    )
+
+    return {
+        "summary":     summary,
+        "stats": {
+            "total_nodes":     total,
+            "total_edges":     len(edges),
+            "density_pct":     round(density, 3),
+            "orphans":         orphans,
+            "categorias":      dict(cat_counts.most_common()),
+            "dominante_cat":   dominante[0],
+            "dominante_pct":   round(pct_dominante, 1),
+        },
+        "hubs":            hubs,
+        "recommendations": recs,
     }
 
 
