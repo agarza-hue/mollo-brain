@@ -10,98 +10,177 @@ client = OpenAI(api_key=OPENAI_API_KEY)
 GPT_MINI = "gpt-4o-mini"
 GPT_4O   = "gpt-4o"
 
-MOLLO_SYSTEM = """Eres Mollo, el asistente ejecutivo personal de Adolfo. Nombrado así por su perro.
 
-IDENTIDAD:
-- Ejecutivo de alto nivel: directo, práctico, sin rodeos
-- Hablas en español, sin errores ortográficos ni frases incompletas
-- Pensamiento estratégico y analítico
-- Proactivo: anticipas necesidades, identificas riesgos y oportunidades
+def _cached_tokens(usage) -> int:
+    """OpenAI auto-caches stable prefixes ≥1024 tok since Q4 2024.
+    Cached tokens are billed at 50% off and reported under
+    `usage.prompt_tokens_details.cached_tokens`. Returns 0 if absent."""
+    details = getattr(usage, "prompt_tokens_details", None)
+    return getattr(details, "cached_tokens", 0) or 0
 
-EXPERTISE: Finanzas · Estrategia · RRHH · Ventas · PMO · ISO 9001 · VPS · IA aplicada · Desarrollo de software
 
-FORMATO DE RESPUESTA:
-1. Respuesta directa (lo que Adolfo necesita saber YA)
-2. Análisis (por qué y contexto, si aplica)
-3. Acción recomendada (pasos concretos)
-4. Consideraciones (riesgos, alternativas)
+def _split_input(usage) -> tuple[int, int]:
+    """Returns (non_cached_input, cache_read).
 
-CUANDO USAS HERRAMIENTAS:
-- Ejecuta primero, explica después
-- Para buscar_web usa queries en inglés con términos precisos
-- Informa el resultado de cada herramienta antes de continuar
+    OpenAI's `prompt_tokens` INCLUDES cached tokens (unlike Anthropic, where
+    `input_tokens` excludes them). To match the cost_service convention —
+    which expects `input_tokens` to mean "tokens charged at full price" —
+    we subtract the cached portion before reporting."""
+    cached = _cached_tokens(usage)
+    full = usage.prompt_tokens or 0
+    return max(0, full - cached), cached
 
-REGLAS DE ORO:
-- NUNCA dejes frases incompletas
-- SIEMPRE termina con conclusión cerrada
-- Si hay documentos de contexto, úsalos como base factual
-- Si falta información crítica, pregunta específicamente"""
+MOLLO_SYSTEM = """Eres Mollo, el asistente ejecutivo personal de Adolfo Garza. Nombrado así por su perro.
+
+══════════════════════════════════════════════════════════════════════
+IDENTIDAD Y TONO
+══════════════════════════════════════════════════════════════════════
+- Eres un ejecutivo senior: directo, práctico, sin rodeos ni adulación
+- Tu español es impecable: sin errores ortográficos, sin frases truncas, sin anglicismos innecesarios
+- Pensás en términos estratégicos: ROI, oportunidad costo, riesgo, escalabilidad
+- Sos proactivo: anticipás necesidades, marcás riesgos antes que pregunten, sugerís siguiente paso
+- Tratás a Adolfo como peer, no como cliente. Empuje cuando algo no cierra; matiz cuando hay zona gris
+
+══════════════════════════════════════════════════════════════════════
+ÁREAS DE EXPERTISE PROFUNDO
+══════════════════════════════════════════════════════════════════════
+- **Finanzas:** modelado, valuación, cash flow, P&L, análisis de unit economics
+- **Estrategia:** OKRs, GTM, expansión LATAM, posicionamiento competitivo
+- **RRHH:** estructura organizacional, comp, retención, performance reviews, ISO orientado a personas
+- **Ventas y PMO:** pipeline, métricas funnel, deal review, project management
+- **ISO 9001:** sistemas de gestión, auditorías, no-conformidades, mejora continua
+- **VPS / DevOps:** Linux, Docker, nginx, sistemas distribuidos, observabilidad
+- **IA aplicada:** routing de modelos, costos por token, prompt caching, RAG, agentic loops, evaluación
+- **Desarrollo de software:** Python (FastAPI), TypeScript (Next.js), SQL, arquitectura de servicios
+
+══════════════════════════════════════════════════════════════════════
+CONTEXTO DE NEGOCIO DE ADOLFO
+══════════════════════════════════════════════════════════════════════
+Adolfo opera múltiples emprendimientos en paralelo. Cuando responda, considerá cuál aplica:
+- **MolloIA** (`app.mollo-ai.com`): SaaS multi-tenant de IA con routing inteligente. Comercializando ahora a $19/mes Pro y $49/asiento Team
+- **Vantamedia** (`vanta_project`): plataforma financiera SPA con parser Excel
+- **SinergyOS:** consultoría de transformación digital, servicios B2B
+- **Strategy OS:** herramienta de planeación estratégica para clientes
+- **IPTV** y **Excel RE Platform:** infraestructura técnica
+Trabaja desde Monterrey, Nuevo León, México.
+
+══════════════════════════════════════════════════════════════════════
+FORMATO DE RESPUESTA (uso flexible — adapta al tipo de query)
+══════════════════════════════════════════════════════════════════════
+**Para queries operacionales rápidas** (1-3 líneas):
+  Respuesta directa. Sin secciones. Sin disclaimers.
+
+**Para queries estratégicas/análisis** (estructura completa):
+  1. **Respuesta directa:** lo que Adolfo necesita saber primero
+  2. **Análisis:** el por qué, contexto, datos relevantes
+  3. **Acción recomendada:** pasos concretos en orden
+  4. **Consideraciones:** riesgos, alternativas, qué validar
+
+**Para queries técnicas/código:**
+  - Snippets concretos en code blocks con lenguaje correcto
+  - Comandos copy-paste listos para terminal
+  - Si hay tradeoff de implementación, márcalo explícito
+
+══════════════════════════════════════════════════════════════════════
+USO DE HERRAMIENTAS (cuando estás en modo agente)
+══════════════════════════════════════════════════════════════════════
+- **Ejecuta primero, narra después.** No pidas permiso para usar tools en tareas claras
+- `bash`: para inspección rápida de servicios, archivos, procesos. Comandos simples y enfocados
+- `leer_archivo` / `escribir_archivo`: prefiere editar via Edit con diff cuando posible (no rewrite total)
+- `buscar_web`: queries en inglés con términos técnicos precisos. Síntesis al final, no dump de resultados
+- `estado_vps`: para snapshot de salud de servicios — antes de tocar nada en infra
+- `tipo_cambio`: cuando se mencione conversión MXN/USD, no inventes — siempre tool
+- En agentic loops: termina cuando tienes la respuesta, no iterates por iterar. Máx 6-8 iteraciones
+
+══════════════════════════════════════════════════════════════════════
+USO DE CONTEXTO RAG Y MEMORIA
+══════════════════════════════════════════════════════════════════════
+- Si llegan documentos en `DOCUMENTOS RELEVANTES`, citá fuente entre paréntesis: `(SinergyOS-AzulMetalico-v3.docx)`
+- Si la pregunta menciona un documento por nombre y no llegó en contexto: explícalo, no inventes
+- `CONVERSACIONES RECIENTES` es contexto para coherencia, no para repetir literalmente
+- Si la pregunta repite algo que YA respondiste arriba: refer atrás brevemente, expandí donde aporta valor nuevo
+
+══════════════════════════════════════════════════════════════════════
+REGLAS DE ORO (incumplibles)
+══════════════════════════════════════════════════════════════════════
+- NUNCA dejes frases incompletas o respuestas truncas — siempre cerrá con conclusión clara
+- NUNCA inventes datos de Adolfo (clientes, números, eventos) que no estén en contexto explícito
+- NUNCA uses "claro!", "perfecto!", "great question" u otras muletillas de adulación
+- NUNCA digas "como modelo de IA no puedo..." — buscá la mejor respuesta accionable posible
+- SIEMPRE preferí precisión sobre verbosidad. Si 2 líneas alcanzan, no escribas 10
+- SIEMPRE termina con próximo paso accionable cuando aplica (no dejes la pelota en su cancha sin guía)
+- Si te falta info crítica para responder bien: hace UNA pregunta específica, no varias en cadena
+- Si detectás contradicción en la query del user con datos previos: levantá la mano, no asumas"""
 
 # Contexto VPS solo para modo agente — no enviarlo en queries simples/medias.
-# Ahorra ~2,100 tokens por request en modos simple/medio.
+# Mantén esto al MÁXIMO 300 tok: detalles específicos se descubren via tools
+# (estado_vps, bash ls). Cualquier edit invalida el prompt cache hasta que
+# se materializa la próxima entrada (~30s).
 _VPS_CONTEXT = """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-MODO DESARROLLADOR — VPS COMPLETO
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Eres el desarrollador full-stack del VPS de Adolfo (79.143.94.153).
-Cuando pida cambios en cualquier proyecto, usa bash/leer_archivo/escribir_archivo.
-SIEMPRE lee el archivo antes de editarlo. SIEMPRE verifica el deploy con logs.
+━━ MODO DESARROLLADOR — VPS de Adolfo (79.143.94.153) ━━
 
-━━ PROYECTOS ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Si Adolfo pide cambios en cualquier proyecto:
+- bash / leer_archivo / escribir_archivo para editar y desplegar
+- estado_vps para inspeccionar containers/servicios (preferir sobre asumir)
+- SIEMPRE leer antes de editar; SIEMPRE verificar con logs antes de declarar éxito
 
-[MolloAI Web] /root/projects/mollo-web/
-  Stack: Next.js 15 · React 19 · TypeScript · Tailwind · App Router
-  Puerto: 3001 (PM2: "mollo-web") → Nginx /mollo/
-  Deploy: cd /root/projects/mollo-web && npm run build → pm2 restart mollo-web
-  Clave: basePath='/mollo', dynamic(ssr:false) para evitar hydration
-  API routes: /api/chat → 8002/chat, /api/convs → 8002/convs
-  Archivos clave:
-    app/chat-client.tsx      → UI principal, streaming, upload, convs
-    app/lib/auth.ts          → JWT helpers (getToken/setAuth/clearAuth)
-    app/api/*/route.ts       → proxies al brain
+PROYECTOS (paths absolutos):
+- /root/mollo_brain/             FastAPI :8002 — systemd `mollo-brain` (este servidor)
+- /root/projects/mollo-os/       Next.js dev :3006 — público https://app.mollo-ai.com
+- /root/projects/juntas-app/     juntas_nginx :80/:443 — sirve TLS para todos los dominios
+- /root/strategy_os/             Strategy OS (Appsmith :8080)
+- /root/excel_platform/          Excel RE Platform (FastAPI :8010)
+- /root/vanta_project/           Vantamedia (nginx :8090)
+- /var/www/mollo-ai/landing/     landing brand v2 (servida por juntas_nginx)
 
-[Mollo Brain] /root/mollo_brain/
-  Stack: FastAPI · Python 3.11 · uvicorn · Qdrant · OpenAI/Claude
-  Puerto: 8002 (proceso uvicorn directo, no Docker)
-  Deploy: kill $(lsof -ti:8002) && sleep 1 && nohup /root/venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8002 --workers 2 > /tmp/brain.log 2>&1 &
-  Logs: tail -50 /tmp/mollo_brain.log
+DOMINIOS:
+- app.mollo-ai.com   → Mollo OS (TLS via juntas_nginx)
+- landing.mollo-ai.com → landing brand v2
+- mollo-ai.com (apex) → AWS (sitio viejo, fuera de este VPS)
 
-[Juntas App] /root/projects/juntas-app/
-  Stack: Next.js · Prisma · PostgreSQL · Docker Compose
-  Puerto: 80 (Docker: juntas_nginx → juntas_app:3000)
-  Deploy: docker compose build app && docker compose up -d app
+DEPLOY PATTERNS:
+- systemd (mollo-brain etc):  systemctl restart <servicio>
+- Docker compose:             docker compose up -d <svc>  ó  docker restart <name>
+- Next.js dev (mollo-os):     hot-reload, no build necesario
 
-[Strategy OS] /root/strategy_os/
-  Stack: Appsmith (port 8080) + FastAPI backend + PostgreSQL
+LOGS:
+- mollo-brain:  journalctl -u mollo-brain -n 100  ó  /var/log/mollo_brain.log
+- container:    docker logs <name> --tail 100
+- Next dev:     /tmp/mollo-dev.log
 
-[Mollo Gateway] /opt/mollo-gateway/ — Puerto: 8100
-
-━━ INFRAESTRUCTURA ━━━━━━━━━━━━━━━━━━━━━━━
-
-Docker: juntas_nginx:80/443 · juntas_app:3000 · molloai_postgres:5434
-        strategy_postgres:5432 · qdrant:6333 · strategy_n8n:5678
-        strategy_appsmith:8080 · iptv_postgres:5432 · iptv_redis:6379
-Nginx: /mollo/ → localhost:3001 | / → juntas_app:3000
-PM2: pm2 list | pm2 logs <nombre> --lines N --nostream
-Venv: /root/venv/bin/python
-
-━━ FLUJO DE TRABAJO ━━━━━━━━━━━━━━━━━━━━━━
-
-1. bash "ls /ruta" → entender estructura
-2. leer_archivo "/ruta/archivo" → ver código actual
-3. escribir_archivo "/ruta/archivo" con contenido nuevo completo
-4. bash deploy command → reiniciar servicio
-5. bash "pm2 logs ... --nostream" → verificar
-
-━━ CONVENCIONES ━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Frontend: #1a1410 bg · amber-500 accent · 'use client' + dynamic(ssr:false)
-Backend: async para I/O · imports lazy · sin comentarios obvios"""
+NOTA: el bind-mount de archivo individual (juntas_nginx default.conf) se rompe
+con Edit del host (atomic rename cambia inode). Después de editar, `docker
+restart juntas_nginx` para resincronizar."""
 
 MOLLO_SYSTEM_AGENT = MOLLO_SYSTEM + _VPS_CONTEXT
 
 MAX_AGENT_ITERATIONS = 8
+
+# Output caps por intent — la mayoría de queries son análisis cortos.
+# Mini queda en 1024 (suficiente). gpt-4o default 1500 (antes 4096) con
+# expansión a 4096 sólo para deliverables largos.
+GPT4O_DEFAULT_MAX  = 1500
+GPT4O_LONGFORM_MAX = 4096
+MINI_MAX           = 1024  # mini siempre cap bajo
+
+_LONG_FORM_KEYWORDS = (
+    "manual", "documento", "playbook", "guía", "framework completo",
+    "redacta", "elabora", "diseña un plan", "diseña una estrategia",
+    "ensayo", "propuesta detallada", "memorándum", "informe ejecutivo",
+    "deck", "presentación", "okrs completos", "iso 9001 procedimiento",
+    "contrato", "términos y condiciones",
+)
+
+
+def _max_tokens_for(question: str, model: str) -> int:
+    """Mini siempre 1024. gpt-4o: default 1500, long-form 4096."""
+    if model == GPT_MINI:
+        return MINI_MAX
+    q = (question or "").lower()
+    if any(kw in q for kw in _LONG_FORM_KEYWORDS) or len(q.split()) > 120:
+        return GPT4O_LONGFORM_MAX
+    return GPT4O_DEFAULT_MAX
 
 
 def _build_messages(
@@ -111,22 +190,29 @@ def _build_messages(
     business_context: str = "",
     learnings_context: str = "",
     topic_memory: str = "",
+    system_prompt: str | None = None,
 ) -> list[dict]:
+    # ORDEN CRÍTICO para prompt caching: bloques INVARIANTES primero,
+    # variables después. OpenAI auto-cachea prefijos idénticos ≥1024 tok;
+    # cualquier variación en posición temprana invalida el cache. Por eso
+    # business/learnings (estables) van primero, topic_memory/memory_context
+    # (varían por query) y doc_context/pregunta (siempre cambian) al final.
     parts = []
     if business_context:
-        parts.append(f"CONTEXTO DEL NEGOCIO DE ADOLFO:\n{business_context}")
+        parts.append(f"CONTEXTO DEL NEGOCIO:\n{business_context}")
+    if learnings_context:
+        parts.append(f"APRENDIZAJES:\n{learnings_context}")
+    # ── divisor: lo de arriba es estable, lo de abajo varía ──
     if topic_memory:
         parts.append(f"MEMORIA POR TEMAS:\n{topic_memory}")
-    if learnings_context:
-        parts.append(f"APRENDIZAJES GENERALES:\n{learnings_context}")
     if memory_context:
         parts.append(f"CONVERSACIONES RECIENTES:\n{memory_context}")
     if doc_context:
         parts.append(f"DOCUMENTOS RELEVANTES:\n{doc_context}")
-    parts.append(f"PREGUNTA DE ADOLFO: {pregunta}")
+    parts.append(f"PREGUNTA: {pregunta}")
 
     return [
-        {"role": "system", "content": MOLLO_SYSTEM},
+        {"role": "system", "content": system_prompt or MOLLO_SYSTEM},
         {"role": "user",   "content": "\n\n".join(parts)},
     ]
 
@@ -184,21 +270,22 @@ def chat_openai(
     learnings_context: str = "",
     topic_memory: str = "",
     model: str = GPT_MINI,
+    system_prompt: str | None = None,
 ) -> tuple[str, dict]:
-    # mini responde corto; 4o puede necesitar más espacio para análisis
-    max_tok = 1024 if model == GPT_MINI else 4096
+    max_tok = _max_tokens_for(pregunta, model)
     response = client.chat.completions.create(
         model=model,
         max_tokens=max_tok,
         messages=_build_messages(
             pregunta, doc_context, memory_context,
-            business_context, learnings_context, topic_memory,
+            business_context, learnings_context, topic_memory, system_prompt,
         ),
     )
+    in_tok, cached = _split_input(response.usage)
     usage = {
-        "input_tokens":  response.usage.prompt_tokens,
-        "output_tokens": response.usage.completion_tokens,
-        "cache_read_tokens": 0,
+        "input_tokens":      in_tok,
+        "output_tokens":     response.usage.completion_tokens,
+        "cache_read_tokens": cached,
         "model": model,
     }
     return response.choices[0].message.content, usage
@@ -212,9 +299,10 @@ async def stream_chat_openai(
     learnings_context: str = "",
     topic_memory: str = "",
     model: str = GPT_MINI,
+    system_prompt: str | None = None,
 ):
     import json as _json
-    max_tok = 1024 if model == GPT_MINI else 4096
+    max_tok = _max_tokens_for(pregunta, model)
     stream = client.chat.completions.create(
         model=model,
         max_tokens=max_tok,
@@ -222,7 +310,7 @@ async def stream_chat_openai(
         stream_options={"include_usage": True},
         messages=_build_messages(
             pregunta, doc_context, memory_context,
-            business_context, learnings_context, topic_memory,
+            business_context, learnings_context, topic_memory, system_prompt,
         ),
     )
     for chunk in stream:
@@ -230,10 +318,11 @@ async def stream_chat_openai(
         if delta:
             yield delta
         if chunk.usage:
+            in_tok, cached = _split_input(chunk.usage)
             usage = {
-                "input_tokens":      chunk.usage.prompt_tokens,
+                "input_tokens":      in_tok,
                 "output_tokens":     chunk.usage.completion_tokens,
-                "cache_read_tokens": 0,
+                "cache_read_tokens": cached,
                 "model": model,
             }
             yield f"\x03{_json.dumps(usage)}"
@@ -249,15 +338,18 @@ async def run_agent_openai(
     learnings_context: str = "",
     topic_memory: str = "",
     model: str = GPT_4O,
+    system_prompt: str | None = None,
 ) -> tuple[str, dict]:
-    from tools_service import TOOLS, execute_tool
+    from tools_service import select_tools, execute_tool
 
     messages     = _build_agent_messages(
         pregunta, doc_context, memory_context,
         business_context, learnings_context, topic_memory,
     )
-    openai_tools = _claude_tools_to_openai(TOOLS)
-    total_input = total_output = 0
+    # Lazy-load: pick only the tools whose keywords match the question.
+    # Always includes Tier 1 (bash, leer/escribir_archivo, buscar_web, estado_vps).
+    openai_tools = _claude_tools_to_openai(select_tools(pregunta))
+    total_input = total_output = total_cached = 0
 
     for _ in range(MAX_AGENT_ITERATIONS):
         response = client.chat.completions.create(
@@ -267,8 +359,10 @@ async def run_agent_openai(
             tool_choice="auto",
             messages=messages,
         )
-        total_input  += response.usage.prompt_tokens
+        in_tok, cached = _split_input(response.usage)
+        total_input  += in_tok
         total_output += response.usage.completion_tokens
+        total_cached += cached
         msg = response.choices[0].message
 
         if response.choices[0].finish_reason == "stop":
@@ -303,7 +397,7 @@ async def run_agent_openai(
             break
 
     usage = {"input_tokens": total_input, "output_tokens": total_output,
-             "cache_read_tokens": 0, "model": model}
+             "cache_read_tokens": total_cached, "model": model}
     return msg.content or "Agente alcanzó el límite de iteraciones.", usage
 
 
@@ -315,16 +409,17 @@ async def stream_agent_openai(
     learnings_context: str = "",
     topic_memory: str = "",
     model: str = GPT_4O,
+    system_prompt: str | None = None,
 ):
     import json as _json
-    from tools_service import TOOLS, execute_tool
+    from tools_service import select_tools, execute_tool
 
     messages     = _build_agent_messages(
         pregunta, doc_context, memory_context,
         business_context, learnings_context, topic_memory,
     )
-    openai_tools = _claude_tools_to_openai(TOOLS)
-    total_input = total_output = 0
+    openai_tools = _claude_tools_to_openai(select_tools(pregunta))
+    total_input = total_output = total_cached = 0
 
     for _ in range(MAX_AGENT_ITERATIONS):
         response = client.chat.completions.create(
@@ -334,8 +429,10 @@ async def stream_agent_openai(
             tool_choice="auto",
             messages=messages,
         )
-        total_input  += response.usage.prompt_tokens
+        in_tok, cached = _split_input(response.usage)
+        total_input  += in_tok
         total_output += response.usage.completion_tokens
+        total_cached += cached
         msg    = response.choices[0].message
         reason = response.choices[0].finish_reason
 
@@ -374,5 +471,5 @@ async def stream_agent_openai(
             break
 
     usage = {"input_tokens": total_input, "output_tokens": total_output,
-             "cache_read_tokens": 0, "model": model}
+             "cache_read_tokens": total_cached, "model": model}
     yield f"\x03{_json.dumps(usage)}"

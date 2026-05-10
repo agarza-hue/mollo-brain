@@ -23,11 +23,13 @@ from openai_brain import (
     run_agent_openai, stream_agent_openai,
     GPT_MINI, GPT_4O,
 )
+from gemini_brain import chat_gemini, stream_chat_gemini, GEMINI_FLASH_LITE
+from groq_brain import run_agent_groq, stream_agent_groq, LLAMA_70B
 from memory_service import save_turn, save_learning, get_semantic_context, get_business_context, get_learnings_context
 from openai_service import extract_learning, classify_complexity
 from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
 import cost_service
-from insforge import get_tenant, increment_usage
+from insforge import get_tenant, increment_usage, orchestrate_tenant
 
 # Cache de contexto estático — se invalida cada 5 minutos.
 # Garantiza que el bloque cacheado de Anthropic llegue idéntico request tras request.
@@ -57,6 +59,7 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 
 # Mapa de nivel → modelo usado (para logging)
 MODELO_LABEL = {
+    "ligero":   "Gemini 2.5 Flash-Lite",
     "simple":   f"GPT-4o-mini",
     "medio":    f"GPT-4o",
     "complejo": "Claude Sonnet 4.6",
@@ -70,7 +73,11 @@ class ChatRequest(BaseModel):
     top_k: int = 5
     session_id: str = "default"
     usar_memoria: bool = True
-    modo: Optional[str] = None  # "simple"|"medio"|"complejo"|"agente" | None (auto)
+    modo: Optional[str] = None  # "ligero"|"simple"|"medio"|"complejo"|"agente" | None (auto)
+    # Backend para agente: "openai" (gpt-4o, default) | "groq" (llama-3.3-70b)
+    # Sólo aplica cuando modo == "agente". Groq es 76% más barato y 3x más
+    # rápido pero sin caching y tool use menos maduro.
+    agente_provider: Optional[str] = "openai"
 
 
 class AnalyzeRequest(BaseModel):
@@ -85,10 +92,63 @@ def _build_doc_context(results: list) -> str:
     for r in results:
         source = r.payload.get("source", "desconocido")
         cat    = r.payload.get("categoria", "")
-        score  = round(r.score, 3)
+        score  = round(r.score, 3) if hasattr(r, "score") else 1.0
         text   = r.payload.get("text", "")
         snippets.append(f"[{source} | {cat} | relevancia: {score}]\n{text}")
     return "\n\n---\n\n".join(snippets)
+
+
+def _extract_referenced_filenames(prompt: str) -> list[str]:
+    """Extrae filenames que el usuario menciona explícitamente en su prompt.
+    Mira primero el patrón que inyecta el frontend tras un upload:
+        [Documentos disponibles vía RAG: "X.docx", "Y.pdf"]
+    Si no encuentra ese marcador, busca extensiones comunes en texto libre.
+    """
+    import re
+    files: list[str] = []
+    m = re.search(r'Documentos disponibles vía RAG:\s*([^\]]+)', prompt)
+    if m:
+        files.extend(re.findall(r'"([^"]+)"', m.group(1)))
+    if not files:
+        files.extend(re.findall(
+            r'[\w\-\.]+\.(?:docx?|pdf|txt|md|csv|xlsx?|json|html?|xml)',
+            prompt,
+            re.IGNORECASE,
+        ))
+    # dedupe preservando orden
+    seen, uniq = set(), []
+    for f in files:
+        if f not in seen:
+            seen.add(f); uniq.append(f)
+    return uniq
+
+
+def _fetch_chunks_by_filename(filenames: list[str], collection: str,
+                              max_chunks_per_file: int = 8) -> list:
+    """Trae chunks de Qdrant filtrando por source==filename. Útil cuando el
+    usuario referencia un archivo específico que la búsqueda semántica no
+    rankea alto (típico cuando el filename no aparece en el contenido)."""
+    if not filenames:
+        return []
+    from qdrant_service import client
+    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+    out = []
+    for fn in filenames:
+        try:
+            pts = client.scroll(
+                collection_name=collection,
+                scroll_filter=Filter(must=[
+                    FieldCondition(key="source", match=MatchValue(value=fn)),
+                ]),
+                limit=max_chunks_per_file,
+                with_payload=True,
+            )[0]
+            # Mantener orden por chunk index para coherencia
+            pts.sort(key=lambda p: p.payload.get("chunk", 0))
+            out.extend(pts)
+        except Exception:
+            pass
+    return out
 
 
 def _save_in_background(
@@ -137,7 +197,9 @@ def _collect_context(query_vector: list, req: "ChatRequest"):  # noqa: F821
 
 async def _respond(modo: str, pregunta: str, doc_context: str,
                    memory_context: str, business_ctx: str,
-                   learnings_ctx: str, topic_memory: str) -> tuple[str, dict]:
+                   learnings_ctx: str, topic_memory: str,
+                   system_prompt: str | None = None,
+                   agente_provider: str = "openai") -> tuple[str, dict]:
     kwargs = dict(
         pregunta=pregunta,
         doc_context=doc_context,
@@ -145,9 +207,14 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
         business_context=business_ctx,
         learnings_context=learnings_ctx,
         topic_memory=topic_memory,
+        system_prompt=system_prompt,
     )
     if modo == "agente":
+        if agente_provider == "groq":
+            return await run_agent_groq(**kwargs, model=LLAMA_70B)
         return await run_agent_openai(**kwargs, model=GPT_4O)
+    if modo == "ligero":
+        return chat_gemini(**kwargs, model=GEMINI_FLASH_LITE)
     if modo == "simple":
         return chat_openai(**kwargs, model=GPT_MINI)
     if modo == "medio":
@@ -157,7 +224,9 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
 
 async def _stream(modo: str, pregunta: str, doc_context: str,
                   memory_context: str, business_ctx: str,
-                  learnings_ctx: str, topic_memory: str):
+                  learnings_ctx: str, topic_memory: str,
+                  system_prompt: str | None = None,
+                  agente_provider: str = "openai"):
     kwargs = dict(
         pregunta=pregunta,
         doc_context=doc_context,
@@ -165,9 +234,17 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
         business_context=business_ctx,
         learnings_context=learnings_ctx,
         topic_memory=topic_memory,
+        system_prompt=system_prompt,
     )
     if modo == "agente":
-        async for chunk in stream_agent_openai(**kwargs, model=GPT_4O):
+        if agente_provider == "groq":
+            async for chunk in stream_agent_groq(**kwargs, model=LLAMA_70B):
+                yield chunk
+        else:
+            async for chunk in stream_agent_openai(**kwargs, model=GPT_4O):
+                yield chunk
+    elif modo == "ligero":
+        async for chunk in stream_chat_gemini(**kwargs, model=GEMINI_FLASH_LITE):
             yield chunk
     elif modo == "simple":
         async for chunk in stream_chat_openai(**kwargs, model=GPT_MINI):
@@ -194,28 +271,97 @@ async def ask_mollo(
     query_vector = await get_embedding(req.pregunta)
     coll         = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
     results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
-    doc_context  = _build_doc_context(results)
 
+    # Si el usuario referenció un archivo específico (típico tras upload
+    # desde el chat), trae sus chunks aunque la búsqueda semántica no los
+    # haya rankeado alto — el filename no siempre aparece dentro del
+    # contenido y embedding por sí solo puede no matchear.
+    referenced = _extract_referenced_filenames(req.pregunta)
+    forced_pts = _fetch_chunks_by_filename(referenced, collection=coll) if referenced else []
+    doc_context  = _build_doc_context(forced_pts + list(results))
+
+    # Tenant externo: InsForge recopila respuesta completa sin contexto de Mollo
+    if tenant:
+        from insforge import _classify, _MODELO_LABEL
+        import anthropic as _ac, openai as _oc
+
+        modo   = req.modo or _classify(req.pregunta)
+        system = tenant.get("system_prompt") or (
+            "Eres un asistente especializado en estrategia y negocios. "
+            "Responde en el idioma del usuario. Usa markdown."
+        )
+        user_content = req.pregunta
+        if doc_context:
+            user_content = f"DOCUMENTOS RELEVANTES:\n{doc_context}\n\nPREGUNTA: {req.pregunta}"
+
+        if modo == "complejo":
+            import os as _os
+            cl = _ac.Anthropic(api_key=_os.getenv("ANTHROPIC_API_KEY"))
+            msg = cl.messages.create(
+                model=_os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6"),
+                max_tokens=4096,
+                system=system,
+                messages=[{"role": "user", "content": user_content}],
+            )
+            respuesta = msg.content[0].text
+            usage = {"input_tokens": msg.usage.input_tokens, "output_tokens": msg.usage.output_tokens, "model": _os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")}
+        else:
+            import os as _os
+            model = "gpt-4o" if modo == "medio" else "gpt-4o-mini"
+            oc = _oc.OpenAI(api_key=_os.getenv("OPENAI_API_KEY"))
+            resp = oc.chat.completions.create(
+                model=model, max_tokens=2048,
+                messages=[{"role": "system", "content": system}, {"role": "user", "content": user_content}],
+            )
+            respuesta = resp.choices[0].message.content
+            usage = {"input_tokens": resp.usage.prompt_tokens, "output_tokens": resp.usage.completion_tokens, "model": model}
+
+        background_tasks.add_task(increment_usage, tenant["id"])
+        return {
+            "respuesta": respuesta,
+            "modo": modo,
+            "modelo": _MODELO_LABEL.get(modo, modo),
+            "fuentes_consultadas": len(results),
+            "fuentes": [{"archivo": r.payload.get("source"), "categoria": r.payload.get("categoria"), "relevancia": round(r.score, 3)} for r in results],
+        }
+
+    # Pipeline Mollo (usuario interno)
     memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
-
     modo = req.modo or classify_complexity(req.pregunta)
+
+    # Slim para agente: tiene tools para fetchar info, no necesita RAG ni topic_memory
+    # cargados a priori. Reduce input ~30-50% por iteración. Se preserva doc_context
+    # SOLO si el usuario nombró un archivo específicamente — ahí sí lo necesita.
+    if modo == "agente":
+        if not referenced:
+            doc_context = ""
+        topic_memory = ""
+
+    # Slim para ligero: queries triviales (hola, ok, cómo estás) — cero context.
+    # Una respuesta corta no necesita historia, RAG, ni learnings. Reduce de
+    # ~500 tok a ~30 tok input.
+    if modo == "ligero":
+        doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
 
     respuesta, usage = await _respond(
         modo, req.pregunta, doc_context,
         memory_context, business_ctx, learnings_ctx, topic_memory,
+        agente_provider=req.agente_provider or "openai",
     )
-
-    if tenant:
-        background_tasks.add_task(increment_usage, tenant["id"])
 
     _save_in_background(background_tasks, req.pregunta, respuesta,
                         req.session_id, query_vector, modo=modo, usage=usage,
-                        tenant_slug=tenant["slug"] if tenant else None)
+                        tenant_slug=None)
+
+    # Etiqueta dinámica para agente Groq
+    modelo_label = MODELO_LABEL.get(modo, modo)
+    if modo == "agente" and (req.agente_provider or "openai") == "groq":
+        modelo_label = "Llama 3.3 70B + tools"
 
     return {
         "respuesta":          respuesta,
         "modo":               modo,
-        "modelo":             MODELO_LABEL.get(modo, modo),
+        "modelo":             modelo_label,
         "fuentes_consultadas": len(results),
         "fuentes": [
             {
@@ -240,42 +386,115 @@ async def stream_mollo(
     query_vector = await get_embedding(req.pregunta)
     coll         = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
     results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
-    doc_context  = _build_doc_context(results)
 
+    # Si el usuario referenció un archivo específico (típico tras upload
+    # desde el chat), trae sus chunks aunque la búsqueda semántica no los
+    # haya rankeado alto — el filename no siempre aparece dentro del
+    # contenido y embedding por sí solo puede no matchear.
+    referenced = _extract_referenced_filenames(req.pregunta)
+    forced_pts = _fetch_chunks_by_filename(referenced, collection=coll) if referenced else []
+    doc_context  = _build_doc_context(forced_pts + list(results))
+
+    # ── Tenant externo: InsForge orquesta directamente (sin contexto de Mollo) ──
+    if tenant:
+        collected: list[str] = []
+        stream_usage: dict = {}
+
+        async def generate_tenant():
+            async for chunk in orchestrate_tenant(
+                tenant, req.pregunta, doc_context,
+                modo_override=req.modo or None,
+            ):
+                if chunk.startswith("\x03"):
+                    try:
+                        stream_usage.update(_json.loads(chunk[1:]))
+                    except Exception:
+                        pass
+                    continue
+                collected.append(chunk)
+                yield chunk
+
+            # Emite resumen al cliente: modelo usado, tokens, requests restantes
+            req_remaining = max(0, tenant["req_limit"] - tenant["req_used"] - 1)
+            summary = {
+                "model":         stream_usage.get("model", ""),
+                "input_tokens":  stream_usage.get("input_tokens", 0),
+                "output_tokens": stream_usage.get("output_tokens", 0),
+                "req_remaining": req_remaining,
+                "req_limit":     tenant["req_limit"],
+            }
+            yield f"\x04{_json.dumps(summary)}"
+
+            background_tasks.add_task(increment_usage, tenant["id"])
+            if collected:
+                import cost_service as _cs
+                from topic_memory_service import detect_topics as _dt
+                def _log():
+                    try:
+                        topics = _dt(req.pregunta)
+                        topic  = topics[0] if topics else "general"
+                        _cs.record(
+                            model=stream_usage.get("model", "gpt-4o-mini"),
+                            modo=stream_usage.get("model", "gpt-4o-mini"),
+                            input_tokens=stream_usage.get("input_tokens", 0),
+                            output_tokens=stream_usage.get("output_tokens", 0),
+                            cache_read_tokens=stream_usage.get("cache_read_tokens", 0),
+                            query_preview=req.pregunta[:80],
+                            topic=topic,
+                            tenant_slug=tenant["slug"],
+                        )
+                    except Exception:
+                        pass
+                background_tasks.add_task(_log)
+
+        return StreamingResponse(generate_tenant(), media_type="text/plain; charset=utf-8")
+
+    # ── Pipeline Mollo (usuario interno — con contexto completo) ─────────────
     memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
-
     modo = req.modo or classify_complexity(req.pregunta)
 
-    collected: list[str] = []
-    stream_usage: dict = {}
+    # Slim para agente: tiene tools para fetchar info — no necesita RAG ni topic_memory
+    # cargados a priori. Reduce input ~30-50% por iteración. doc_context SOLO si
+    # el usuario nombró un archivo específicamente.
+    if modo == "agente":
+        if not referenced:
+            doc_context = ""
+        topic_memory = ""
 
-    async def generate():
-        yield f"\x02{modo}:{MODELO_LABEL.get(modo, modo)}\n"
+    # Slim para ligero: queries triviales — cero context inyectado.
+    if modo == "ligero":
+        doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
+
+    mollo_collected: list[str] = []
+    mollo_usage: dict = {}
+
+    async def generate_mollo():
+        modelo_label = MODELO_LABEL.get(modo, modo)
+        if modo == "agente" and (req.agente_provider or "openai") == "groq":
+            modelo_label = "Llama 3.3 70B + tools"
+        yield f"\x02{modo}:{modelo_label}\n"
         async for chunk in _stream(
             modo, req.pregunta, doc_context,
             memory_context, business_ctx, learnings_ctx, topic_memory,
+            agente_provider=req.agente_provider or "openai",
         ):
             if chunk.startswith("\x03"):
-                # Usage sentinel — parse and store, don't send to client
                 try:
-                    stream_usage.update(_json.loads(chunk[1:]))
+                    mollo_usage.update(_json.loads(chunk[1:]))
                 except Exception:
                     pass
                 continue
-            collected.append(chunk)
+            mollo_collected.append(chunk)
             yield chunk
 
-        full_response = "".join(collected)
-        if tenant:
-            background_tasks.add_task(increment_usage, tenant["id"])
         _save_in_background(
-            background_tasks, req.pregunta, full_response,
+            background_tasks, req.pregunta, "".join(mollo_collected),
             req.session_id, query_vector,
-            modo=modo, usage=stream_usage or None,
-            tenant_slug=tenant["slug"] if tenant else None,
+            modo=modo, usage=mollo_usage or None,
+            tenant_slug=None,
         )
 
-    return StreamingResponse(generate(), media_type="text/plain; charset=utf-8")
+    return StreamingResponse(generate_mollo(), media_type="text/plain; charset=utf-8")
 
 
 @router.post("/analyze")

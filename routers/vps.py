@@ -1,9 +1,11 @@
 """Monitor de estado del VPS — CPU, RAM, disco, red, contenedores."""
-import subprocess, shutil, os, time
-from fastapi import APIRouter
+import re, subprocess, shutil, os, time
+from fastapi import APIRouter, HTTPException
 from datetime import datetime
 
 router = APIRouter(prefix="/vps", tags=["VPS Monitor"])
+
+CONTAINER_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 
 
 def _run(cmd: str) -> str:
@@ -96,6 +98,85 @@ def get_docker() -> list[dict]:
     return containers
 
 
+def _parse_mem_to_mb(value: str) -> int:
+    # docker stats reports MemUsage as e.g. "45.3MiB / 7.7GiB" — only the LHS.
+    s = value.strip()
+    try:
+        if s.endswith("GiB"):
+            return int(float(s[:-3]) * 1024)
+        if s.endswith("MiB"):
+            return int(float(s[:-3]))
+        if s.endswith("KiB"):
+            return max(0, int(float(s[:-3]) / 1024))
+        if s.endswith("B"):
+            return max(0, int(float(s[:-1]) / 1024 / 1024))
+    except ValueError:
+        pass
+    return 0
+
+
+def get_docker_stats() -> list[dict]:
+    """Per-container snapshot: status, image, ports, uptime, live CPU%, RAM MB."""
+    raw_ps = _run(
+        "docker ps -a --format '{{.ID}}\t{{.Names}}\t{{.Status}}\t{{.Image}}\t{{.Ports}}'"
+    )
+    by_name: dict[str, dict] = {}
+    for line in raw_ps.split("\n"):
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 5:
+            continue
+        cid, name, status, image, ports = parts[0], parts[1], parts[2], parts[3], parts[4]
+        if status.startswith("Up"):
+            state = "running"
+            uptime = status[3:].strip()  # strip leading "Up "
+        elif status.startswith("Restarting"):
+            state = "restarting"
+            uptime = status
+        elif status.startswith("Paused"):
+            state = "paused"
+            uptime = "paused"
+        else:
+            state = "exited"
+            uptime = status
+        by_name[name] = {
+            "id": cid[:12],
+            "name": name,
+            "image": image,
+            "status": state,
+            "ports": [p.strip() for p in ports.split(",") if p.strip()],
+            "uptime": uptime,
+            "cpu": 0.0,
+            "ram": 0,
+        }
+
+    raw_stats = _run(
+        "docker stats --no-stream --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}'"
+    )
+    for line in raw_stats.split("\n"):
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        name, cpu_pct, mem_use = parts[0], parts[1], parts[2]
+        if name not in by_name:
+            continue
+        try:
+            by_name[name]["cpu"] = float(cpu_pct.rstrip("%"))
+        except ValueError:
+            pass
+        used = mem_use.split("/")[0]
+        by_name[name]["ram"] = _parse_mem_to_mb(used)
+
+    # Running first, then by CPU desc for stable interesting ordering.
+    return sorted(
+        by_name.values(),
+        key=lambda c: (0 if c["status"] == "running" else 1, -c["cpu"], c["name"]),
+    )
+
+
 def get_procesos_top() -> list[dict]:
     raw = _run("ps aux --sort=-%cpu | head -8 | tail -7")
     procs = []
@@ -156,6 +237,41 @@ def vps_status():
         "servicios": get_servicios(),
         "procesos_top_cpu": get_procesos_top(),
     }
+
+
+@router.get("/docker/stats")
+def docker_stats():
+    """Per-container CPU%, RAM MB, status, uptime — for the process monitor UI."""
+    return {"containers": get_docker_stats()}
+
+
+def _docker_action(name: str, action: str) -> dict:
+    if not CONTAINER_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail=f"invalid container name: {name!r}")
+    if action not in ("restart", "stop"):
+        raise HTTPException(status_code=400, detail=f"invalid action: {action!r}")
+    try:
+        # shell=False + arg list — name is NOT interpolated into a shell.
+        r = subprocess.run(
+            ["docker", action, name],
+            capture_output=True, text=True, timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail=f"docker {action} timed out for {name}")
+    if r.returncode != 0:
+        msg = (r.stderr or r.stdout).strip().splitlines()
+        raise HTTPException(status_code=502, detail=msg[-1] if msg else f"docker {action} failed")
+    return {"status": "ok", "action": action, "name": name, "stdout": r.stdout.strip()}
+
+
+@router.post("/docker/{name}/restart")
+def docker_restart(name: str):
+    return _docker_action(name, "restart")
+
+
+@router.post("/docker/{name}/stop")
+def docker_stop(name: str):
+    return _docker_action(name, "stop")
 
 
 @router.post("/ask")

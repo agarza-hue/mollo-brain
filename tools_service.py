@@ -350,6 +350,86 @@ _VPS_COMMANDS: dict[str, str] = {
 }
 
 
+# ── Lazy-load: selecciona subset de tools según la pregunta ───────────────────
+#
+# Mandar las 16 tools = 2,381 tok cada turno agente. Pero la mayoría de
+# queries solo usan 1-2. Tier 1 va siempre (~785 tok core). Tier 2 se carga
+# por keyword (~1,596 tok adicionales). Estrategia: ser GENEROSO en triggers
+# — falso positivo cuesta tokens, falso negativo cuesta la respuesta entera
+# (el agente no puede usar lo que no ve).
+
+_TIER1 = {"bash", "leer_archivo", "escribir_archivo", "buscar_web", "estado_vps"}
+
+# Cada grupo: lista de tools que se cargan juntas + keywords que las disparan.
+# Las keywords se buscan como substring en `question.lower()`, así que pueden
+# ser parciales ("git " incluye "git", "git push", etc.).
+_TIER2_GROUPS = [
+    {
+        "tools": ["tipo_cambio"],
+        "keywords": [
+            "dólar", "dolar", "dolares", "dólares", "peso ", "pesos",
+            " usd", " mxn", "tipo de cambio", "cotiz", "convierte",
+            "convertir", "moneda", "banxico",
+        ],
+    },
+    {
+        "tools": ["ejecutar_comando_vps"],
+        "keywords": [
+            "vps", "servidor", "docker", "container", "contenedor",
+            "logs ", "service ", "systemctl", "reinicia", "reiniciar",
+            "estado del", "qué corre", "que corre",
+        ],
+    },
+    {
+        "tools": ["disparar_workflow_n8n"],
+        "keywords": [
+            "n8n", "workflow", "automatiza", "automatización",
+            "reporte_semanal", "alerta_email", "sync_docs", "dispara",
+        ],
+    },
+    {
+        "tools": [
+            "dropbox_listar", "dropbox_buscar",
+            "dropbox_analizar", "dropbox_subir",
+        ],
+        "keywords": [
+            "dropbox", "carpeta", "documentos en", "subir a", "descarga",
+            "archivo en dropbox", "mis archivos", "mis documentos",
+        ],
+    },
+    {
+        "tools": ["buscar_codigo", "git", "ejecutar_dev"],
+        "keywords": [
+            "código", "codigo", "función ", "funcion ", "clase ",
+            "git ", "commit", "push ", "pull ", "branch", "merge",
+            "diff", "checkout", "rebase",
+            "npm ", "yarn ", "build", "deploy", "compila", "compilar",
+            "test", "pytest", "jest", "donde está", "donde se define",
+            " bug ", "fix", "refactor",
+        ],
+    },
+    {
+        "tools": ["guardar_contexto_negocio"],
+        "keywords": [
+            "guarda", "guardar", "recuerda", "anota", "memoriza",
+            "no olvides", "ten en cuenta", "para futuro",
+        ],
+    },
+]
+
+
+def select_tools(question: str) -> list[dict]:
+    """Pick a subset of TOOLS based on keywords in the user's question.
+    Always returns at least the Tier 1 set; adds Tier 2 groups whose keywords
+    match. Order preserves the original TOOLS list (so prompt cache hits)."""
+    q = (question or "").lower()
+    selected: set[str] = set(_TIER1)
+    for grp in _TIER2_GROUPS:
+        if any(kw in q for kw in grp["keywords"]):
+            selected.update(grp["tools"])
+    return [t for t in TOOLS if t["name"] in selected]
+
+
 # ── Ejecutores ────────────────────────────────────────────────────────────────
 
 async def execute_tool(name: str, inputs: dict) -> str:
@@ -598,9 +678,12 @@ def _bash(comando: str, timeout: int = 60) -> str:
         )
         out = (result.stdout or "") + (result.stderr or "")
         out = out.strip()
-        if len(out) > 12000:
-            out = out[-12000:]
-            out = "[...salida truncada a las últimas 12000 chars]\n" + out
+        # Truncamos agresivo: cada iter del agentic loop replays todos los
+        # tool_results, así que un 12K char dump se paga 3-4 veces. 4K chars
+        # = ~1K tok suelen ser suficientes para errors/diffs útiles.
+        if len(out) > 4000:
+            out = out[-4000:]
+            out = "[...salida truncada a las últimas 4000 chars]\n" + out
         if not out:
             out = f"(sin salida, código de salida: {result.returncode})"
         return out

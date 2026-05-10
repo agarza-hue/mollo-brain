@@ -43,6 +43,7 @@ class UserOut(BaseModel):
     name: str
     plan: str
     created_at: datetime
+    is_admin: bool = False
 
 
 class TokenResponse(BaseModel):
@@ -75,7 +76,7 @@ def decode_token(token: str) -> dict:
 
 def get_user_by_email(db: Session, email: str) -> Optional[dict]:
     row = db.execute(
-        text("SELECT id, email, name, hashed_password, plan, is_active, created_at FROM users WHERE email = :email"),
+        text("SELECT id, email, name, hashed_password, plan, is_active, created_at, is_admin FROM users WHERE email = :email"),
         {"email": email}
     ).fetchone()
     return dict(row._mapping) if row else None
@@ -129,7 +130,7 @@ def get_current_user(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido o expirado")
 
     row = db.execute(
-        text("SELECT id, email, name, plan, is_active, created_at FROM users WHERE id = :id"),
+        text("SELECT id, email, name, plan, is_active, created_at, is_admin FROM users WHERE id = :id"),
         {"id": user_id}
     ).fetchone()
     if not row:
@@ -153,7 +154,7 @@ def get_optional_user(
     except JWTError:
         return None
     row = db.execute(
-        text("SELECT id, email, name, plan, is_active, created_at FROM users WHERE id = :id"),
+        text("SELECT id, email, name, plan, is_active, created_at, is_admin FROM users WHERE id = :id"),
         {"id": user_id}
     ).fetchone()
     if not row:

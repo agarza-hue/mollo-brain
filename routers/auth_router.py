@@ -1,7 +1,10 @@
 """
 Endpoints de autenticación — /auth/register, /auth/login, /auth/me
 """
+from typing import Optional
+
 from fastapi import APIRouter, HTTPException, Depends, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from db import get_db
@@ -15,6 +18,25 @@ from auth import (
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def _link_pending_molloia_subscription(db: Session, user_id: str, email: str) -> Optional[str]:
+    """If a Stripe subscription was created for this email before the user
+    registered, link it now and return the plan. Otherwise None.
+
+    The molloia_subscriptions table is created lazily by the billing router;
+    use a try/except in case it doesn't exist yet (fresh DB)."""
+    try:
+        row = db.execute(text("""
+            UPDATE molloia_subscriptions
+            SET user_id = :uid, updated_at = NOW()
+            WHERE email = :email AND user_id IS NULL
+              AND status IN ('active', 'trialing')
+            RETURNING plan
+        """), {"uid": user_id, "email": email}).fetchone()
+        return row.plan if row else None
+    except Exception:
+        return None
+
+
 @router.post("/register", response_model=TokenResponse, status_code=201)
 def register(body: UserRegister, db: Session = Depends(get_db)):
     if get_user_by_email(db, body.email):
@@ -22,6 +44,17 @@ def register(body: UserRegister, db: Session = Depends(get_db)):
     if len(body.password) < 6:
         raise HTTPException(status_code=400, detail="Password mínimo 6 caracteres")
     user = create_user(db, body.email, body.name, body.password)
+
+    # Link any pending Stripe subscription for this email and bump plan.
+    plan = _link_pending_molloia_subscription(db, str(user["id"]), body.email)
+    if plan:
+        db.execute(
+            text("UPDATE users SET plan = :p WHERE id = :id"),
+            {"p": plan, "id": str(user["id"])},
+        )
+        db.commit()
+        user = get_user_by_email(db, body.email)
+
     token = create_access_token(str(user["id"]), user["email"])
     return TokenResponse(
         access_token=token,

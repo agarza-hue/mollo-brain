@@ -27,13 +27,53 @@ def _chunk_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP)
 
 
 def extract_text_pdf(path: str) -> str:
+    """Extrae texto de PDF con fallback en cascada:
+    1) pdfplumber → más rápido, funciona si el PDF tiene capa de texto
+    2) pdfminer.six → motor alterno, a veces extrae cuando pdfplumber falla
+    3) OCR vía pdf2image + pytesseract (spa+eng) → único camino para PDFs
+       imagen (escaneos, diseños exportados desde Figma/Canva, etc.)
+    """
+    # — Layer 1: pdfplumber
     pages = []
-    with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t:
-                pages.append(t)
-    return "\n".join(pages)
+    try:
+        with pdfplumber.open(path) as pdf:
+            for page in pdf.pages:
+                t = page.extract_text()
+                if t:
+                    pages.append(t)
+    except Exception:
+        pass
+    text = "\n".join(pages).strip()
+    if text:
+        return text
+
+    # — Layer 2: pdfminer.six
+    try:
+        from pdfminer.high_level import extract_text as _pm_extract
+        text = (_pm_extract(path) or "").strip()
+        if text:
+            return text
+    except Exception:
+        pass
+
+    # — Layer 3: OCR (image-only PDFs)
+    try:
+        from pdf2image import convert_from_path
+        import pytesseract
+        ocr_pages = []
+        # dpi=200 balance entre calidad y velocidad
+        for img in convert_from_path(path, dpi=200):
+            t = pytesseract.image_to_string(img, lang="spa+eng")
+            if t.strip():
+                ocr_pages.append(t)
+        text = "\n".join(ocr_pages).strip()
+        if text:
+            return text
+    except Exception as e:
+        # Si OCR explota (sin dependencias o PDF corrupto), no bloquear
+        print(f"[document_service] OCR failed for {path}: {e}")
+
+    return ""
 
 
 def extract_text_docx(path: str) -> str:
@@ -95,6 +135,10 @@ def process_document(file_path: str, filename: str, categoria: str) -> list[dict
                 "chunk": i,
                 "total_chunks": len(chunks),
                 "file_path": file_path,
+                # CRÍTICO: el `text` debe estar en el payload para que el
+                # search() lo retorne. Sin esto, Qdrant guarda metadata sin
+                # contenido y la RAG no puede inyectar el doc al prompt.
+                "text": chunk,
             }
         })
     return records

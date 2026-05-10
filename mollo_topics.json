@@ -1,150 +1,163 @@
 {
   "finanzas": {
-    "resumen": "Las finanzas son esenciales para manejar ingresos, gastos y presupuestos, permitiendo decisiones estratégicas sobre inversiones y costos en la expansión de una empresa de logística en LATAM. La captación de nuevos clientes es una prioridad, especialmente en un sector donde el e-commerce crece un 18% anual. Definir requisitos específicos para un sistema ERP es crucial para su correcta implementación y para el control de costos asociados. Además, la gestión eficiente del flujo de caja puede optimizar los recursos empresariales.",
+    "resumen": "BION Business busca entrar al mercado estadounidense con un objetivo de $50,000 USD en ingresos antes de diciembre de 2026. Se evalúa la opción de convertirse en proveedor de software a medida o SaaS y se propone mejorar la gestión financiera y la alineación de costos. Sin embargo, el sistema `mollo_brain` sigue sin responder, lo que requiere atención inmediata.",
     "hechos_clave": [
-      "El e-commerce en LATAM está creciendo a un ritmo del 18% anual.",
-      "Se busca alcanzar la meta de 2 nuevos clientes antes de septiembre de 2026, lo que aumentaría los ingresos en $50,000 MXN.",
-      "Los ingresos potenciales por los 3 clientes actuales son de $75,000 MXN ($4,298.55 USD).",
-      "Los 2 nuevos clientes añadirían ingresos de $50,000 MXN ($2,857.14 USD) adicionales.",
-      "El costo de implementar un ERP puede variar entre $10,000 y $500,000 MXN ($570 a $28,500 USD).",
-      "Las soluciones en la nube pueden ser más asequibles inicialmente."
+      "BION Business proyecta generar $50,000 USD en ingresos desde clientes estadounidenses antes de diciembre de 2026.",
+      "La decisión sobre la entrada al mercado estadounidense se basa en elegir entre ser proveedor de software a medida o SaaS.",
+      "El manual de identidad define que el propósito de BION Business es eliminar la desalineación entre Personas, Sistemas y Procesos.",
+      "Se proponen KPIs para medir la productividad de un equipo de ventas remoto.",
+      "Meta de clientes fin de año: 5.",
+      "Brecha hasta la meta de clientes fin de año: 2 clientes nuevos.",
+      "Meta USA: $50,000 USD antes de diciembre de 2026",
+      "Ticket promedio: $25,000 MXN / $1,433 USD"
     ],
     "pendientes": [
-      "Desarrollo del Programa de Referidos",
+      "Decidir si entrar a USA como proveedor de software a medida o como SaaS.",
+      "Desarrollo del Programa de Referidos.",
       "Revisar el documento financiero [tmpukot3w3o.txt] para comprender los costos asociados.",
-      "Preparar un desglose detallado y comparar con los márgenes esperados.",
-      "Obtener actualización de RRHH sobre el proceso de contratación del nuevo colaborador y la nómina del equipo.",
-      "Contactar a Cloudingio para obtener información sobre la ampliación del disco."
+      "Crear un plan financiero Q2 2026 con OKRs.",
+      "Reinicio y monitoreo del servicio `mollo_brain`"
     ],
-    "actualizado": "2026-05-07T02:41:03.068443",
-    "conversaciones_procesadas": 50
+    "actualizado": "2026-05-09T20:17:15.526723",
+    "conversaciones_procesadas": 71
   },
   "estrategia": {
-    "resumen": "Adolfo está diseñando una estrategia de expansión para una empresa de logística en LATAM, enfocándose en el crecimiento del e-commerce y la adquisición de nuevos clientes. La meta es incrementar los ingresos en $50,000 MXN mediante la captura de 2 nuevos clientes antes de septiembre de 2026. Se evalúa la implementación de un ERP con costos entre $10,000 y $500,000 MXN y se necesita liberar espacio en la solución en la nube para mejorar la capacidad operativa. Además, se busca mejorar la captación de clientes en software a medida.",
+    "resumen": "El servicio 'mollo_brain' sigue sin respuesta, se necesita atención inmediata, y se busca definir estrategia y planes de crecimiento.",
     "hechos_clave": [
-      "E-commerce creciendo 18% anual en LATAM (2025-2026)",
-      "Meta de adquirir 2 nuevos clientes antes de septiembre de 2026",
-      "Aumento de ingresos proyectado en $50,000 MXN tras adquisición de nuevos clientes",
-      "Ingresos actuales por 3 clientes son de $75,000 MXN",
-      "Uso del disco en Cloudingio alcanza el 80%, con necesidad urgente de liberar espacio",
-      "InsForge está activo y validado",
-      "Costo de implementación de un ERP puede variar entre $10,000 y $500,000 MXN",
-      "Documentación 'acme_test.txt' tiene una relevancia alta (0.645)"
+      "El servicio 'mollo_brain' sigue sin respuesta y requiere atención inmediata.",
+      "El uso de CPU es del 43,5%",
+      "La RAM está en 58,6% de uso.",
+      "El VPS tiene 21 contenedores activos.",
+      "El objetivo es generar $50,000 USD en ingresos desde clientes de USA antes de diciembre de 2026.",
+      "La meta de clientes fin del año es 5.",
+      "La estrategia de ingreso al mercado estadounidense es software a medida o SaaS."
     ],
     "pendientes": [
-      "Definir estrategia de captación para 2 nuevos clientes",
-      "Evaluar capacidad operativa para atender 5 clientes sin afectar calidad del servicio",
-      "Atender alerta de falta de respuesta en el servicio 'mollo_brain'",
-      "Limpiar espacios innecesarios en el VPS",
-      "Contactar a Cloudingio para obtener información sobre la ampliación del disco"
+      "Crear Manual de Identidad Corporativa para BION Business",
+      "Desarrollar plan de marketing para el mercado estadounidense",
+      "Definir planes de crecimiento para los próximos 6 meses",
+      "Definir KPIs para medir el progreso de la estrategia de ingreso al mercado estadounidense",
+      "Reiniciar y monitorear el servicio 'mollo_brain'"
     ],
-    "actualizado": "2026-05-07T02:41:31.669088",
-    "conversaciones_procesadas": 102
+    "actualizado": "2026-05-09T21:29:02.374095",
+    "conversaciones_procesadas": 159
   },
   "ventas": {
-    "resumen": "Mollo está ayudando a Adolfo en la estrategia de captación de nuevos clientes, generando actualmente $75,000 MXN mensuales con 3 clientes y buscando añadir 2 nuevos que proporcionarían $50,000 MXN adicionales. Se proyecta un crecimiento del 18% anual en el sector de logística y e-commerce. La implementación de un ERP es considerada, con un costo que varía entre $10,000 y $500,000 MXN. InsForge está operativo, pero requiere monitoreo continuo para garantizar la calidad del servicio.",
+    "resumen": "BION Business busca generar $50,000 USD en revenue en el mercado estadounidense para diciembre 2026. La gestión de clientes, pipelines y propuestas es clave para el cierre exitoso de ventas. Se están trazando KPIs para evaluar la productividad de los equipos de ventas y programadores. La estrategia en LATAM incluye adquirir clientes en México, Colombia y Chile.",
     "hechos_clave": [
-      "Ingresos potenciales por 3 clientes actuales son de $75,000 MXN ($4,298.55 USD).",
-      "Se espera captación de 2 nuevos clientes que podrían añadir $50,000 MXN ($2,857.14 USD) adicionales.",
-      "VPS al 80% de ocupación.",
-      "Se proyecta un crecimiento del 18% anual en el sector de logística y e-commerce.",
-      "El costo de implementar un ERP puede variar entre $10,000 y $500,000 MXN ($570 a $28,500 USD).",
-      "Mollo puede ayudar a diseñar estrategias de expansión y optimizar procesos operativos.",
-      "Se busca alcanzar 5 clientes antes de fin de año (2026).",
-      "Es crucial establecer un enfoque claro en cada interacción para optimizar la captación de clientes."
+      "Estrategia GTM para LATAM se centra en cerrar 2 nuevos clientes en 90 días (2025-2026)",
+      "Objetivo estratégico para USA: generar $50,000 USD en revenue antes de diciembre 2026",
+      "Propuestos 5 KPIs para medir productividad de un equipo de ventas remoto: tasa de conversión, actividades de prospección, tiempo promedio de ciclo de venta, y ticket promedio por cierre",
+      "Objetivo Q2: cerrar 1 nuevo cliente en LATAM y generar $37,500 USD en revenue en USA",
+      "Ticket promedio: $25,000 MXN / $1,433 USD",
+      "Ingreso mensual estimado: ~$75,000 MXN",
+      "Meta de clientes fin de año: 5",
+      "Brecha: 2 clientes nuevos necesarios"
     ],
     "pendientes": [
-      "Limpiar el VPS para liberar espacio.",
-      "Revisar y reparar el servicio de `mollo_brain`.",
-      "Implementar un conjunto de comandos de mantenimiento.",
-      "Contactar a RRHH para solicitar un informe actualizado sobre el estado del proceso de contratación y la nómina.",
-      "Contactar a Cloudingio para obtener información sobre la ampliación del disco."
+      "Decidir si entrar a USA como proveedor de software a medida o como SaaS",
+      "Crear plan de acción para cerrar 1 nuevo cliente en LATAM",
+      "Revisar y ajustar KPIs para medir productividad de los equipos de ventas y programadores",
+      "Desarrollar manual de identidad para la empresa boutique de consultoría B2B",
+      "Definir arquitectura y estado actual de IPTV"
     ],
-    "actualizado": "2026-05-07T02:41:41.177335",
-    "conversaciones_procesadas": 78
+    "actualizado": "2026-05-09T17:44:41.237738",
+    "conversaciones_procesadas": 114
   },
   "vps_infra": {
-    "resumen": "Un VPS ofrece control superior y recursos dedicados, ideal para aplicaciones en crecimiento. Docker gestiona aplicaciones en contenedores, mejorando la eficiencia y simplificando los deployments. Se requiere monitoreo continuo del VPS, actualmente operando con un 80% de uso de disco. Se considera implementar acciones específicas para mejorar la captación de clientes en software a medida antes de la meta del 2026.",
+    "resumen": "El VPS 'mollo_brain' tiene un servicio crítico (mollo_brain) fallido, 21 contenedores actuales y uso moderado de recursos.",
     "hechos_clave": [
-      "Uso de disco en el VPS: 80%",
-      "Contenedor problemático identificado: mollo_brain (no responde)",
-      "Estado del VPS: activo 4 días y 16 horas",
-      "Uso de CPU: 52.2%",
-      "Uso de RAM: 38.7%, con 9805 MB libres de un total de 15993 MB",
-      "Contenedores activos: 10",
-      "Clientes activos: 3, meta para 2026: 5",
-      "Costo de implementar un ERP: entre $10,000 y $500,000 MXN"
+      "El servicio `mollo_brain` sigue sin responder.",
+      "El uso de CPU es de 43.5% y el disco está al 48% de capacidad.",
+      "La RAM está en 58.6% de uso.",
+      "El VPS tiene 21 contenedores activos.",
+      "Funcionan correctamente los servicios `strategy_os`, `qdrant`, `n8n`.",
+      "Recursos del sistema: CPU al 40% y RAM al 57.1%."
     ],
     "pendientes": [
-      "Evaluar las operaciones recientes que pueden estar demandando más recursos del VPS",
-      "Implementar un conjunto de comandos de mantenimiento",
-      "Contactar a Cloudingio para obtener información sobre la ampliación del disco",
-      "Solicitar un presupuesto específico para el aumento de disco",
-      "Definir los requisitos específicos para el tenant"
+      "Reiniciar `mollo_brain`",
+      "Revisar logs de `mollo_brain`",
+      "Groq rate limit alcanzado, reintenta en unos minutos o usa Agente + tools"
     ],
-    "actualizado": "2026-05-07T02:41:55.009756",
-    "conversaciones_procesadas": 126
+    "actualizado": "2026-05-09T21:29:02.923568",
+    "conversaciones_procesadas": 175
   },
   "rrhh": {
-    "resumen": "El equipo de RRHH busca captar 2 nuevos clientes antes de septiembre de 2026 para alcanzar un total de 5 clientes activos y aumentar la facturación en $50,000 MXN. Actualmente, cuentan con 3 clientes que generan $75,000 MXN mensuales y están evaluando la implementación de soluciones como un ERP y un chatbot en WhatsApp para mejorar la atención al cliente. También se está analizando el costo de un tenant según especificaciones necesarias, lo cual es crucial para el presupuesto del sistema. La herramienta InsForge está funcionando correctamente.",
+    "resumen": "El equipo de RRHH está trabajando en la expansión hacia LATAM y valorando la entrada al mercado de USA, buscando generar $50,000 USD en revenue de clientes estadounidenses antes de diciembre de 2026. Se están desarrollando OKRs y un Manual de Identidad Corporativa para BION Business. Además, el plan financiero Q2 se está desarrollando con OKRs.",
     "hechos_clave": [
-      "Meta de captar 2 nuevos clientes antes de septiembre de 2026",
-      "Objetivo de generar $50,000 MXN adicionales en facturación",
-      "3 clientes activos generan $75,000 MXN mensuales",
-      "InsForge está operativo y funcionando correctamente",
-      "Implementar un chatbot en WhatsApp para mejorar la atención al cliente",
-      "Costo de implementación de un ERP entre $10,000 y $500,000 MXN",
-      "Evaluación del costo de un tenant según requisitos específicos"
+      "Meta de generar $50,000 USD en revenue de clientes estadounidenses antes de diciembre de 2026",
+      "Expansión al mercado LATAM, enfocándose en logística y e-commerce",
+      "Considerando entrar a USA como proveedor de software a medida o como SaaS (MolloIA)",
+      "Desarrollo del Manual de Identidad Corporativa para BION Business",
+      "Inicio del desarrollo de un manual de operaciones para el call center, incluyendo onboarding, escalaciones y métricas",
+      "Redacción de un manual de identidad detallado para una empresa boutique de consultoría B2B",
+      "Plan financiero Q2: objetivo de $150,000 MXN (~$7,500 USD) en ingresos mensuales",
+      "Meta del Q2: cerrar 3 contratos con clientes estadounidenses"
     ],
     "pendientes": [
-      "Definir una estrategia efectiva de captación de clientes",
-      "Definir acciones específicas para captar dos nuevos clientes para software a medida",
-      "Realizar comunicación proactiva con clientes actuales para fomentar relaciones y obtener referencias",
-      "Monitorear regularmente el rendimiento de InsForge",
-      "Definir los requisitos específicos para el tenant"
+      "Decidir si entrar a USA como proveedor de software a medida o como SaaS (MolloIA)",
+      "Definir una estrategia efectiva de captación de clientes en LATAM",
+      "Finalizar el Manual de Identidad Corporativa para BION Business",
+      "Completar el módulo de onboarding en el manual de operaciones del call center",
+      "Cerciorarse de que el plan financiero Q2 se ajuste a los objetivos de la empresa"
     ],
-    "actualizado": "2026-05-07T01:23:56.904088",
-    "conversaciones_procesadas": 23
+    "actualizado": "2026-05-09T17:44:48.831084",
+    "conversaciones_procesadas": 40
   },
   "proyectos": {
-    "resumen": "Mollo está desarrollando una estrategia de crecimiento para captar nuevos clientes con el objetivo de escalar de tres a cinco clientes activos antes de septiembre de 2026 y generar $50,000 MXN adicionales. Es fundamental optimizar recursos y dirigir los esfuerzos hacia la captación de nuevos clientes. Se debe abordar específicamente la estrategia de captación de clientes en software a medida. Además, es necesario revisar el servicio 'mollo_brain' y liberar espacio en el VPS.",
+    "resumen": "Adolfo está considerando expandir BION Business hacia el mercado estadounidense, con el objetivo de generar $50,000 USD en ingresos desde clientes de USA antes de diciembre 2026.",
     "hechos_clave": [
-      "El servidor VPS lleva activo 4 días y 16 horas.",
-      "El 80% del disco está en uso, con necesidad urgente de liberar espacio.",
-      "El servicio 'mollo_brain' está sin respuesta y requiere revisión.",
-      "El VPS utiliza el 52.2% de CPU y el 38.7% de RAM, con 9805 MB de RAM libre de los 15993 MB totales.",
-      "Actualmente, hay 10 contenedores en ejecución en el VPS.",
-      "InsForge está operativo y funcionando correctamente.",
-      "El documento 'acme_test.txt' tiene una relevancia alta (0.645)."
+      "Adolfo busca generar $50,000 USD en revenue desde clientes estadounidenses antes de diciembre 2026.",
+      "La expansión a USA se realizará sin abrir entidad legal en la primera fase.",
+      "Meta de clientes fin de año en software a medida: 5",
+      "Meta USA: $50,000 USD antes de dic 2026",
+      "Ticket promedio: $25,000 MXN / $1,433 USD",
+      "Meta de clientes nuevos: 2"
     ],
     "pendientes": [
-      "Definir acciones específicas para captar dos nuevos clientes para software a medida.",
-      "Definir los comandos necesarios para el CLI.",
-      "Configurar el entorno de desarrollo con FastAPI.",
-      "Revisar el servicio 'mollo_brain' que está sin respuesta.",
-      "Contactar a Cloudingio para obtener información sobre la ampliación del disco."
+      "Definir el modelo de entrada a USA (software a medida vs. SaaS).",
+      "Determinar OKRs para Q2"
     ],
-    "actualizado": "2026-05-07T02:42:06.183447",
-    "conversaciones_procesadas": 72
+    "actualizado": "2026-05-09T17:45:02.319787",
+    "conversaciones_procesadas": 97
   },
   "automatizacion": {
-    "resumen": "La automatización y la inteligencia artificial son esenciales para la estrategia de captación de clientes, especialmente en software a medida. Herramientas como Mollo y n8n permiten crear flujos de trabajo efectivos. Se busca alcanzar un objetivo de cinco clientes antes de finalizar el año 2026, destacando la importancia de una comunicación clara y planificada. Actualmente, se están realizando diagnósticos y mantenimientos en el sistema para asegurar su funcionalidad óptima.",
-    "hechos_clave": [],
-    "pendientes": [],
-    "actualizado": "2026-05-07T02:42:08.914042",
-    "conversaciones_procesadas": 147
+    "resumen": "La automatización y aplicación de IA para BION Business sigue en curso. El servicio 'mollo_brain' sigue sin respuesta. El uso del VPS sigue siendo elevado y necesita mejorar su rendimiento. Se está analizando la entrada a USA y la creación de un plan financiero documentado.",
+    "hechos_clave": [
+      "Meta de ingreso mensual estimada: ~$75,000 MXN",
+      "Uso de CPU actual: 43.5%",
+      "Uso de RAM actual: 58.6%",
+      "Nivel de disco actual: 48%",
+      "Contenedores activos: 21",
+      "Clientes activos: 3",
+      "Ticket promedio: $25,000 MXN / $1,433 USD"
+    ],
+    "pendientes": [
+      "Decidir si se entra a USA como proveedor de software a medida o como SaaS",
+      "Crear plan financiero Q2 documentado",
+      "Definir estrategia para aumentar la brecha de clientes",
+      "Revisar código del servicio 'mollo_brain'",
+      "Diagnosticar problema persistente con 'mollo_brain'"
+    ],
+    "actualizado": "2026-05-09T20:19:03.681404",
+    "conversaciones_procesadas": 205
   },
   "iso9001": {
-    "resumen": "La ISO 9001 es una norma internacional para la gestión de calidad que promueve la mejora continua y la satisfacción del cliente. InsForge está operativo y su rendimiento es crucial para optimizar procesos y captar nuevos clientes, especialmente en logística y e-commerce. Se planifica establecer un enfoque claro para captar al menos 5 nuevos clientes para finales de 2026. La implementación de un sistema de monitoreo continuo es esencial para documentar rendimientos y detectar anomalías.",
-    "hechos_clave": [],
-    "pendientes": [
-      "Contactar a la persona a cargo de RRHH para solicitar un informe actualizado sobre el estado del proceso de contratación del nuevo colaborador y la nómina del equipo.",
-      "Implementar un sistema de monitoreo para InsForge.",
-      "Documentar cualquier anomalía detectada durante el monitoreo.",
-      "Definir los requisitos específicos para el tenant.",
-      "Desarrollar una estrategia específica sobre la captación de nuevos clientes en software a medida."
+    "resumen": "La ISO 9001 es una norma internacional clave para la gestión de calidad enfocada en la mejora continua y satisfacer al cliente. InsForge busca generar $50,000 USD en ingresos de clientes estadounidenses antes de diciembre 2026. El servicio `mollo_brain` sigue con problemas y necesita un diagnóstico detallado. BION Business busca eliminar la desalineación entre Personas, Sistemas y Procesos en las organizaciones.",
+    "hechos_clave": [
+      "El objetivo estratégico de InsForge es generar $50,000 USD en revenue desde clientes estadounidenses antes de diciembre 2026.",
+      "El servicio `mollo_brain` necesita un diagnóstico detallado y posible revisión del código.",
+      "La hora actual en Monterrey es 2:00 PM.",
+      "La RAM está en 58.6% de uso.",
+      "El VPS tiene un uso de CPU moderado al 43.5% y el disco está al 48% de capacidad."
     ],
-    "actualizado": "2026-05-07T02:42:13.375405",
-    "conversaciones_procesadas": 81
+    "pendientes": [
+      "Decidir si entrar al mercado USA como proveedor de software a medida o como SaaS (MolloIA).",
+      "Realizar un diagnóstico detallado y posible revisión del código del servicio `mollo_brain`.",
+      "Resolver el problema persistente con `mollo_brain`.",
+      "Asegurar el correcto funcionamiento de los servicios críticos según el diagnóstico del VPS."
+    ],
+    "actualizado": "2026-05-09T21:29:01.540562",
+    "conversaciones_procesadas": 112
   }
 }

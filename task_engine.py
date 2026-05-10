@@ -379,6 +379,15 @@ class TaskEngine:
         effective_dry = task.dry_run or dry_run
         ctx = {**task.context, **extra_ctx}
 
+        # Insert an in-flight row so /tasks/runs/all/recent reflects running tasks.
+        # The INSERT OR REPLACE at the end of this method overwrites with the final result.
+        started_at = datetime.now(timezone.utc).isoformat()
+        with get_db() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO task_runs(run_id,task_id,status,dry_run,started_at,finished_at,result) VALUES(?,?,?,?,?,?,?)",
+                (run_id, task.task_id, "running", int(effective_dry), started_at, None, None)
+            )
+
         ws = WorkspaceManager(task.workspace.id, run_id)
         ws.snapshot()
 
@@ -461,11 +470,11 @@ class TaskEngine:
             error=error_msg,
         )
 
-        now = datetime.now(timezone.utc).isoformat()
+        finished_at = datetime.now(timezone.utc).isoformat()
         with get_db() as db:
             db.execute(
                 "INSERT OR REPLACE INTO task_runs(run_id,task_id,status,dry_run,started_at,finished_at,result) VALUES(?,?,?,?,?,?,?)",
-                (run_id, task.task_id, status, int(effective_dry), now, now, result.model_dump_json())
+                (run_id, task.task_id, status, int(effective_dry), started_at, finished_at, result.model_dump_json())
             )
 
         return result

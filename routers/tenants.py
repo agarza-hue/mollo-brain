@@ -53,6 +53,7 @@ class TenantSummary(BaseModel):
     req_limit: int
     usage_pct: float
     is_admin: bool = False
+    status: str = 'active'
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ def list_tenants():
     db = SessionLocal()
     try:
         rows = db.execute(
-            text("SELECT id, slug, name, plan, req_used, req_limit, is_admin FROM sinergy_tenants ORDER BY id")
+            text("SELECT id, slug, name, plan, req_used, req_limit, is_admin, status FROM sinergy_tenants ORDER BY id")
         ).fetchall()
         return [_row_to_out(dict(r._mapping)) for r in rows]
     finally:
@@ -155,6 +156,33 @@ def toggle_admin(slug: str):
                 RETURNING id, slug, name, plan, req_used, req_limit, api_key, created_at, is_admin, is_admin
             """),
             {"val": new_val, "slug": slug},
+        ).fetchone()
+        db.commit()
+        return _row_to_out(dict(row._mapping))
+    finally:
+        db.close()
+
+
+@router.post("/tenants/{slug}/toggle-status", response_model=TenantSummary)
+def toggle_status(slug: str):
+    """Alterna el status de un tenant entre active y suspended."""
+    db = SessionLocal()
+    try:
+        current = db.execute(
+            text("SELECT status FROM sinergy_tenants WHERE slug = :slug"),
+            {"slug": slug},
+        ).fetchone()
+        if not current:
+            raise HTTPException(404, f"Tenant '{slug}' no encontrado")
+        if slug in ("adolfo", "sinergy-local"):
+            raise HTTPException(403, "No se puede suspender a tenants fundadores")
+        new_status = "suspended" if current[0] == "active" else "active"
+        row = db.execute(
+            text("""
+                UPDATE sinergy_tenants SET status = :status WHERE slug = :slug
+                RETURNING id, slug, name, plan, req_used, req_limit, is_admin, status
+            """),
+            {"status": new_status, "slug": slug},
         ).fetchone()
         db.commit()
         return _row_to_out(dict(row._mapping))
