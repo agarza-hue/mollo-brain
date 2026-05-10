@@ -1,6 +1,6 @@
 {
   "finanzas": {
-    "resumen": "Se propone convertirse en proveedor de software a medida o SaaS en el mercado estadounidense con $50,000 USD en ingresos antes de diciembre de 2026. Esto conlleva la mejora de la gestión financiera y la alineación de costos. Se prioriza la decisión de si entrar como proveedor de software a medida o como SaaS. También es importante evaluar un plan financiero Q2 2026 con OKRs y el desarrollo del programa de referidos.",
+    "resumen": "Se proponen convertirse en proveedor de software a medida o SaaS en el mercado estadounidense con $50,000 USD en ingresos antes de diciembre de 2026, priorizando la decisión de cómo entrar y evaluando un plan financiero Q2 2026 con OKRs.",
     "hechos_clave": [
       "Se evalúa la opción de convertirse en proveedor de software a medida o SaaS.",
       "Meta de ingresos en el mercado estadounidense: $50,000 USD antes de diciembre de 2026.",
@@ -15,10 +15,14 @@
       "Crear un plan financiero Q2 2026 con OKRs.",
       "Reinicio y monitoreo del servicio `mollo_brain`",
       "Desarrollo del Programa de Referidos.",
-      "Revisar el documento financiero [tmpukot3w3o.txt] para comprender los costos asociados."
+      "Revisar el documento financiero [tmpukot3w3o.txt] para comprender los costos asociados.",
+      "- Las tecnologías fijas (no se cambian) son Node.js y Express para el backend y React para el frontend.",
+      "- Límites presupuestarios de $10,000 MXN para hardware y $5,000 MXN para software.",
+      "- Integraciones obligatorias con el sistema de correo electrónico y la base de datos de clientes.",
+      "- El sistema definitivamente no utilizará servidores virtuales como DigitalOcean o AWS."
     ],
-    "actualizado": "2026-05-09T23:22:28.584551",
-    "conversaciones_procesadas": 75
+    "actualizado": "2026-05-10T01:27:48.598787",
+    "conversaciones_procesadas": 76
   },
   "estrategia": {
     "resumen": "Mollo está trabajando en construir una capa de inteligencia operativa propia con objetivos de negocio que incluyen generar $50,000 USD en ingresos desde clientes de USA antes de diciembre de 2026. La ventaja competitiva es la soberanía tecnológica en el mercado de LATAM. Necesita desarrollar un manual de identidad corporativa y planes de crecimiento.",
@@ -98,7 +102,7 @@
     "conversaciones_procesadas": 41
   },
   "proyectos": {
-    "resumen": "Adolfo busca expandir BION Business hacia el mercado estadounidense con un objetivo de generar $50,000 USD en ingresos antes de diciembre de 2026. Actualmente, tiene varios proyectos activos en diferentes fases, incluyendo MolloIA, Vantamedia y SinergyOS. Además, debe definir OKRs para Q2 y estructurar un plan para empezar con Reader de manera efectiva. Se espera que la meta de clientes fin de año en software a medida sea de 5 y de 2 nuevos clientes en USA.",
+    "resumen": "BION Business buscará expandirse al mercado estadounidense con un presupuesto de $50,000 USD para antes de diciembre de 2026. Los proyectos MolloIA, Vantamedia, SinergyOS, y otros estarán involucrados. Se enfoca en generar metas, estructurar planes y definir OKRs. La estrategia para USA no implicará la apertura de una entidad legal en la fase 1.",
     "hechos_clave": [
       "Adolfo busca expandir BION Business hacia el mercado estadounidense con un objetivo de generar $50,000 USD en ingresos antes de diciembre de 2026.",
       "La expansión a USA se realizará sin abrir entidad legal en la primera fase.",
@@ -111,13 +115,14 @@
     "pendientes": [
       "Definir el modelo de entrada a USA",
       "Determinar OKRs para Q2",
-      "Estructurar un plan para empezar con Reader de manera efectiva"
+      "Estructurar un plan para empezar con Reader de manera efectiva",
+      "Usar metodología spec-kit"
     ],
-    "actualizado": "2026-05-09T23:31:38.300364",
-    "conversaciones_procesadas": 101
+    "actualizado": "2026-05-10T01:27:49.163397",
+    "conversaciones_procesadas": 102
   },
   "automatizacion": {
-    "resumen": "Adolfo está construyendo una capa de inteligencia operativa propia, utilizando una infraestructura tecnológica independiente y una identidad propia. Los proyectos activos incluyen MolloIA, una plataforma SaaS de IA en comercialización, y otras iniciativas en consultoría y plataformas tecnológicas. Su enfoque en la soberanía tecnológica es clave para competir en el mercado LATAM. Además, está acumulando contexto para que MolloIA aprenda sobre el negocio del cliente.",
+    "resumen": "Adolfo está creando una capa de inteligencia operativa propia, utilizando metodología spec-kit y enfocándose en la soberanía tecnológica. Está acumulando contexto para que MolloIA aprenda sobre el negocio del cliente. Los proyectos activos incluyen MolloIA, Vantamedia y otras iniciativas. El objetivo es competir en el mercado LATAM.",
     "hechos_clave": [
       "Está creando una capa de inteligencia operativa propia independiente de un solo proveedor.",
       "Tiene memoria persistente y routing multi-tier.",
@@ -125,34 +130,37 @@
       "Tiene una obsesión central por la soberanía tecnológica como ventaja competitiva.",
       "Está utilizando VPS propio, brain propio e identidad propia.",
       "El patrón es la soberanía tecnológica como ventaja competitiva en el mercado LATAM.",
-      "Sus proyectos activos incluyen MolloIA, Vantamedia, SinergyOS, Strategy OS, Excel RE Platform, IPTV, y Juntas & Pendientes."
+      "Tiene plan financiero Q2 documentado."
     ],
     "pendientes": [
-      "Revisar el diseño actual de routing y monitorear el rendimiento.",
-      "Crear plan financiero Q2 documentado.",
       "Definir estrategia para aumentar la brecha de clientes.",
       "Revisar código del servicio 'mollo_brain'.",
-      "Diagnosticar problema persistente con 'mollo_brain'."
+      "Diagnosticar problema persistente con 'mollo_brain'",
+      "Crear documento de especificación de reglas constitution"
     ],
-    "actualizado": "2026-05-09T23:31:45.944290",
-    "conversaciones_procesadas": 211
+    "actualizado": "2026-05-10T01:27:49.610244",
+    "conversaciones_procesadas": 212
   },
   "iso9001": {
-    "resumen": "La ISO 9001 es una norma internacional clave para la gestión de calidad enfocada en la mejora continua y satisfacer al cliente. InsForge busca generar $50,000 USD en ingresos de clientes estadounidenses antes de diciembre 2026. El servicio `mollo_brain` sigue con problemas y necesita un diagnóstico detallado. BION Business busca eliminar la desalineación entre Personas, Sistemas y Procesos en las organizaciones.",
+    "resumen": "El objetivo estratégico de InsForge es generar $50,000 USD en ingresos de clientes estadounidenses antes de diciembre 2026. El servicio `mollo_brain` necesita un diagnóstico detallado y posible revisión del código. Se busca eliminar la desalineación entre Personas, Sistemas y Procesos en las organizaciones. Se utilizará metodología spec-kit.",
     "hechos_clave": [
       "El objetivo estratégico de InsForge es generar $50,000 USD en revenue desde clientes estadounidenses antes de diciembre 2026.",
       "El servicio `mollo_brain` necesita un diagnóstico detallado y posible revisión del código.",
       "La hora actual en Monterrey es 2:00 PM.",
       "La RAM está en 58.6% de uso.",
-      "El VPS tiene un uso de CPU moderado al 43.5% y el disco está al 48% de capacidad."
+      "El VPS tiene un uso de CPU moderado al 43.5% y el disco está al 48% de capacidad.",
+      "El objetivo de InsForge es cumplir con la ISO 9001 para mejorar la calidad y satisfacción del cliente.",
+      "MolloIA es una posible opción para InsForge.",
+      "InsForge necesita cumplir con las normas y certificaciones pertinentes relacionadas con la calidad y la seguridad de los datos."
     ],
     "pendientes": [
       "Decidir si entrar al mercado USA como proveedor de software a medida o como SaaS (MolloIA).",
       "Realizar un diagnóstico detallado y posible revisión del código del servicio `mollo_brain`.",
       "Resolver el problema persistente con `mollo_brain`.",
-      "Asegurar el correcto funcionamiento de los servicios críticos según el diagnóstico del VPS."
+      "Asegurar el correcto funcionamiento de los servicios críticos según el diagnóstico del VPS.",
+      "Cumplir con la metodología spec-kit y las reglas constitution."
     ],
-    "actualizado": "2026-05-09T21:29:01.540562",
-    "conversaciones_procesadas": 112
+    "actualizado": "2026-05-10T01:28:02.362312",
+    "conversaciones_procesadas": 113
   }
 }
