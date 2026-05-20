@@ -14,6 +14,7 @@ from qdrant_service import ensure_collection, ensure_memory_collection, ensure_c
 from routers import documents, chat, memory, vps, tasks, costs, limits, tenants
 from routers import auth_router, convs_router, workspaces, events
 from routers import billing, molloia_billing, claude_ai_usage, graph
+from routers import pai
 
 
 @asynccontextmanager
@@ -56,6 +57,7 @@ app.include_router(billing.router)
 app.include_router(molloia_billing.router)
 app.include_router(claude_ai_usage.router)
 app.include_router(graph.router)
+app.include_router(pai.router)
 
 
 @app.get("/")

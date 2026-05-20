@@ -148,5 +148,86 @@ def run_daily() -> int:
     return 0 if success else 1
 
 
+# ───────── Weekly ISA review (cron del lunes) ─────────
+
+ISA_REVIEW_PROMPT_TEMPLATE = """Eres Mollo. Es lunes en la mañana de Adolfo. Genera un weekly review del siguiente ISA para que él decida qué accionar esta semana.
+
+ISA actual:
+---
+{isa_content}
+---
+
+Estructura tu review así (markdown ligero, español, sin muletillas):
+
+### 📊 Status — semana del {date}
+Una línea: ¿el ISA está en track o no? Basado en `Criteria` vs `Verification`.
+
+### ✅ Criteria cumplidos
+Bullets de los ISCs que ya están verificados. Si no hay, di "ninguno aún".
+
+### 🎯 Criteria pendientes priorizados
+2-3 bullets de los ISCs más críticos por cerrar esta semana. Cada uno con la acción concreta de los próximos 7 días.
+
+### ⚠️ Riesgos / blockers
+1-2 bullets de qué amenaza el plan. Si nada, "sin blockers visibles".
+
+### 🔄 Sugerencia de update al ISA
+1-2 cambios que tendría sentido reflejar en `Decisions` o `Changelog` del ISA si las cosas evolucionaron. Si nada, "ISA sigue vigente".
+
+### 🎬 Próxima acción única para hoy
+UNA cosa accionable que mueva el aguja más. Verbo + objeto + entregable visible al final del día.
+
+Cierra con: "Weekly ISA review · {date} · Mollo"
+"""
+
+
+def generate_isa_review(isa_id: str) -> str:
+    """Lee el ISA via /pai/isa/<id> y pide a Mollo el weekly review."""
+    try:
+        r = requests.get(f"{BRAIN_URL}/pai/isa/{isa_id}", timeout=10)
+        r.raise_for_status()
+        isa_content = r.json().get("content", "")
+        if not isa_content:
+            return f"⚠️ ISA '{isa_id}' vacía o no existe."
+    except Exception as e:
+        logger.exception("error leyendo ISA %s", isa_id)
+        return f"⚠️ No pude leer ISA '{isa_id}': {type(e).__name__}: {e}"
+
+    prompt = ISA_REVIEW_PROMPT_TEMPLATE.format(
+        isa_content=isa_content,
+        date=datetime.now().strftime("%d/%m/%Y"),
+    )
+    try:
+        r = requests.post(
+            f"{BRAIN_URL}/chat/ask",
+            json={"pregunta": prompt, "modo": "complejo",
+                  "session_id": f"isa_review_{isa_id}", "usar_memoria": True},
+            timeout=180,
+        )
+        r.raise_for_status()
+        text = r.json().get("respuesta", "")
+        if not text:
+            raise RuntimeError("respuesta vacía")
+        logger.info("ISA review generado · isa=%s · %d chars", isa_id, len(text))
+        return text
+    except Exception as e:
+        logger.exception("error generando ISA review")
+        return f"⚠️ Error generando review de ISA '{isa_id}': {type(e).__name__}: {e}"
+
+
+def run_isa_review(isa_id: str) -> int:
+    """Entry CLI del cron del lunes."""
+    logger.info("=== ISA review start · isa=%s · %s ===", isa_id, datetime.now().isoformat())
+    text = generate_isa_review(isa_id)
+    header = f"📋 *Weekly ISA Review*\n_{isa_id}_\n\n"
+    success = send_to_telegram(header + text)
+    logger.info("=== ISA review end · success=%s ===", success)
+    return 0 if success else 1
+
+
 if __name__ == "__main__":
+    # python -m briefing_service                                  → daily brief
+    # python -m briefing_service isa-review <isa_id>              → weekly ISA review
+    if len(sys.argv) >= 3 and sys.argv[1] == "isa-review":
+        sys.exit(run_isa_review(sys.argv[2]))
     sys.exit(run_daily())
