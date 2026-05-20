@@ -1,0 +1,7 @@
+# Runtime/secrets viven en /opt/mollo-telegram, nunca en git
+.env
+venv/
+__pycache__/
+*.bak
+*.bak.*
+*.save
