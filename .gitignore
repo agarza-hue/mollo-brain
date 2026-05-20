@@ -3,6 +3,7 @@ __pycache__/
 *.pyo
 .env
 mollo_memory.json
+mollo_topics.json
 *.log
 *.bak
 .agents/
