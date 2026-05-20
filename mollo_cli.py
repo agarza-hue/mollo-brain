@@ -4,6 +4,8 @@ import sys
 import os
 import json
 import time
+import difflib
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -12,6 +14,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.markup import escape
 
 VERSION   = "2.0.0"
 BRAIN_URL = "http://localhost:8002"
@@ -211,6 +214,26 @@ def ask_stream(query: str, s: MolloState):
     detected_modo = s.modo or "medio"
     tokens: list[str] = []
 
+    tool_event_buf = ""  # acumula frames \x05...\n que pueden llegar partidos
+
+    def _flush_tool_event(frame: str) -> None:
+        try:
+            ev = json.loads(frame)
+        except Exception:
+            return
+        if ev.get("type") == "write":
+            # nueva línea visual para que el panel no se pegue al stream
+            print()
+            _render_diff_payload(
+                ev.get("path", "?"),
+                is_new=bool(ev.get("is_new")),
+                diff_lines=ev.get("diff_lines"),
+                new_preview=ev.get("new_preview"),
+                added=int(ev.get("added") or 0),
+                removed=int(ev.get("removed") or 0),
+                truncated=bool(ev.get("truncated")),
+            )
+
     with httpx.stream("POST", f"{BRAIN_URL}/chat/stream", json=payload, timeout=120) as r:
         r.raise_for_status()
         for chunk in r.iter_text():
@@ -220,6 +243,31 @@ def ask_stream(query: str, s: MolloState):
                 meta  = chunk[1:].strip()
                 parts = meta.split(":", 1)
                 detected_modo = parts[0] if parts else detected_modo
+                continue
+            # Frames de tool events: \x05{json}\n  (pueden llegar partidos)
+            if tool_event_buf or "\x05" in chunk:
+                tool_event_buf += chunk
+                while "\x05" in tool_event_buf:
+                    start = tool_event_buf.index("\x05")
+                    # texto antes del frame se imprime normal
+                    pre = tool_event_buf[:start]
+                    if pre:
+                        tokens.append(pre)
+                        print(pre, end="", flush=True)
+                    end = tool_event_buf.find("\n", start)
+                    if end == -1:
+                        # frame incompleto, esperar más chunks
+                        tool_event_buf = tool_event_buf[start:]
+                        break
+                    frame = tool_event_buf[start + 1:end]
+                    _flush_tool_event(frame)
+                    tool_event_buf = tool_event_buf[end + 1:]
+                else:
+                    # no quedan \x05 — vaciar buffer al stream
+                    if tool_event_buf:
+                        tokens.append(tool_event_buf)
+                        print(tool_event_buf, end="", flush=True)
+                        tool_event_buf = ""
                 continue
             tokens.append(chunk)
             print(chunk, end="", flush=True)
@@ -487,12 +535,16 @@ def cmd_ctx(s: MolloState):
 
 
 def cmd_stats(s: MolloState):
-    # Datos reales desde Brain
+    # Datos reales desde Brain.
+    # Modos importados (claude_code, external) no son decisiones del auto-routing,
+    # así que se excluyen del baseline para que el ahorro refleje solo el routing.
+    ROUTING_EXCLUDE = "claude_code,external"
     try:
         data     = _brain_get("/costs/summary")
-        lifetime = data.get("lifetime", {})
-        by_model = data.get("by_model", [])
-        daily    = data.get("last_7_days", [])
+        lifetime_all = data.get("lifetime", {})
+        by_model     = data.get("by_model", [])
+        lifetime_routing = _brain_get(f"/costs/lifetime?exclude_modos={ROUTING_EXCLUDE}")
+        daily            = _brain_get(f"/costs/daily?days=7&exclude_modos={ROUTING_EXCLUDE}")
 
         console.print()
         console.print(Rule("[dim]costos reales — lifetime[/dim]", style="dim"))
@@ -528,17 +580,23 @@ def cmd_stats(s: MolloState):
                 )
             console.print(t)
 
-        # Totales lifetime
-        q      = lifetime.get("queries", 0) or 0
-        actual = lifetime.get("actual_cost", 0) or 0
-        base   = lifetime.get("baseline_cost", 0) or 0
-        saved  = lifetime.get("savings", 0) or 0
-        pct    = lifetime.get("savings_pct", 0) or 0
-        tokens = (lifetime.get("input_tokens", 0) or 0) + (lifetime.get("output_tokens", 0) or 0)
+        # Totales lifetime — total tracked (incluye imports) + auto-routing aislado
+        q_all      = lifetime_all.get("queries", 0) or 0
+        actual_all = lifetime_all.get("actual_cost", 0) or 0
+        tokens_all = (lifetime_all.get("input_tokens", 0) or 0) + (lifetime_all.get("output_tokens", 0) or 0)
+
+        q_r      = lifetime_routing.get("queries", 0) or 0
+        actual_r = lifetime_routing.get("actual_cost", 0) or 0
+        base_r   = lifetime_routing.get("baseline_cost", 0) or 0
+        saved_r  = lifetime_routing.get("savings", 0) or 0
+        pct_r    = lifetime_routing.get("savings_pct", 0) or 0
+
         console.print()
-        console.print(f"  [bold]{q}[/bold] queries · [bold]{tokens:,}[/bold] tokens")
-        console.print(f"  real: [bold]${actual:.4f}[/bold]  baseline(all-claude): [dim]${base:.4f}[/dim]")
-        console.print(f"  ahorro: [green bold]+${saved:.4f}[/green bold]  ([green]{pct:.0f}%[/green])")
+        console.print(f"  total tracked: [bold]{q_all}[/bold] queries · [bold]{tokens_all:,}[/bold] tokens · real [bold]${actual_all:.4f}[/bold] [dim](incluye imports claude_code+external)[/dim]")
+        console.print(f"  auto-routing:  [bold]{q_r}[/bold] queries · real [bold]${actual_r:.4f}[/bold]  baseline(Sonnet): [dim]${base_r:.4f}[/dim]")
+        ahorro_color = "green" if saved_r >= 0 else "red"
+        sign = "+" if saved_r >= 0 else ""
+        console.print(f"  ahorro routing: [{ahorro_color} bold]{sign}${saved_r:.4f}[/{ahorro_color} bold]  ([{ahorro_color}]{pct_r:.0f}%[/{ahorro_color}])")
 
         # Últimos 7 días
         if daily:
@@ -633,6 +691,162 @@ def cmd_export(s: MolloState):
     console.print(f"-> exported: {filepath}  ({len(s.history)} turns)\n")
 
 
+def _render_diff_payload(path: str, *, is_new: bool,
+                         diff_lines: list[str] | None,
+                         new_preview: list[str] | None,
+                         added: int, removed: int,
+                         truncated: bool = False) -> None:
+    """Renderiza una diff ya calculada (estilo Claude Code: ±, números, contexto)."""
+    if is_new:
+        lines = new_preview or []
+        body = "\n".join(
+            f"[green]+ {i:4d}  {escape(ln)}[/green]"
+            for i, ln in enumerate(lines, 1)
+        ) or "[dim](archivo vacío)[/dim]"
+        if truncated:
+            body += "\n[dim]  ... (truncado)[/dim]"
+        subtitle = f"[green]new file · +{added}[/green]"
+        title = f"[green]new[/green]: {path}"
+    else:
+        rendered = []
+        old_n = new_n = 0
+        for d in (diff_lines or []):
+            if d.startswith("@@"):
+                m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", d)
+                if m:
+                    old_n = int(m.group(1))
+                    new_n = int(m.group(2))
+                rendered.append(f"[cyan dim]{escape(d)}[/cyan dim]")
+            elif d.startswith("+") and not d.startswith("+++"):
+                rendered.append(f"[green]+ {new_n:4d}  {escape(d[1:])}[/green]")
+                new_n += 1
+            elif d.startswith("-") and not d.startswith("---"):
+                rendered.append(f"[red]- {old_n:4d}  {escape(d[1:])}[/red]")
+                old_n += 1
+            elif d.startswith(" "):
+                rendered.append(f"[dim]  {old_n:4d}  {escape(d[1:])}[/dim]")
+                old_n += 1
+                new_n += 1
+        if truncated:
+            rendered.append("[dim]  ... (truncado)[/dim]")
+        body = "\n".join(rendered) or "[dim](sin cambios)[/dim]"
+        subtitle = f"[green]+{added}[/green] [red]-{removed}[/red]"
+        title = f"{path}"
+
+    console.print()
+    console.print(Panel(body, title=title, subtitle=subtitle, border_style="cyan", padding=(0, 1)))
+
+
+def _compute_diff_payload(path: str, old: str, new: str, is_new: bool,
+                          max_lines: int = 200) -> dict:
+    """Calcula payload para renderizar diff. Compartido CLI ↔ brain."""
+    old_lines = old.splitlines() if old else []
+    new_lines = new.splitlines() if new else []
+    truncated = False
+    if is_new:
+        added, removed = len(new_lines), 0
+        preview = new_lines[:max_lines]
+        if len(new_lines) > max_lines:
+            truncated = True
+        return {
+            "path": str(path), "is_new": True,
+            "diff_lines": None, "new_preview": preview,
+            "added": added, "removed": removed, "truncated": truncated,
+        }
+    diff = list(difflib.unified_diff(
+        old_lines, new_lines, fromfile="a", tofile="b", n=3, lineterm=""
+    ))
+    added   = sum(1 for d in diff[2:] if d.startswith("+") and not d.startswith("+++"))
+    removed = sum(1 for d in diff[2:] if d.startswith("-") and not d.startswith("---"))
+    diff_body = diff[2:]
+    if len(diff_body) > max_lines:
+        diff_body = diff_body[:max_lines]
+        truncated = True
+    return {
+        "path": str(path), "is_new": False,
+        "diff_lines": diff_body, "new_preview": None,
+        "added": added, "removed": removed, "truncated": truncated,
+    }
+
+
+def _render_diff(path: Path, old: str, new: str, is_new: bool) -> tuple[int, int]:
+    """Wrapper para callers locales (cmd_write). Calcula y renderiza."""
+    payload = _compute_diff_payload(str(path), old, new, is_new)
+    _render_diff_payload(payload["path"],
+                         is_new=payload["is_new"],
+                         diff_lines=payload["diff_lines"],
+                         new_preview=payload["new_preview"],
+                         added=payload["added"],
+                         removed=payload["removed"],
+                         truncated=payload["truncated"])
+    return payload["added"], payload["removed"]
+
+
+def cmd_write(arg: str, s: MolloState):
+    """Escribe archivo con preview de diff y backup."""
+    path_str = (arg or "").strip()
+    if not path_str:
+        _error("uso: /write <ruta>")
+        return
+    path = Path(path_str).expanduser()
+
+    console.print(Panel(
+        f"Pega el contenido completo de [bold]{path}[/bold].\n"
+        "Termina con una línea sola: [yellow]EOF[/yellow]  (o Ctrl-D)",
+        title="WRITE", border_style="yellow", padding=(0, 1)
+    ))
+    lines: list[str] = []
+    try:
+        while True:
+            line = input()
+            if line.strip() == "EOF":
+                break
+            lines.append(line)
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[yellow]cancelado.[/yellow]")
+        return
+
+    new_content = "\n".join(lines) + ("\n" if lines else "")
+    is_new = not path.exists()
+    old_content = "" if is_new else path.read_text()
+
+    if old_content == new_content:
+        console.print("[dim]sin cambios. nada que escribir.[/dim]")
+        return
+
+    added, removed = _render_diff(path, old_content, new_content, is_new)
+
+    try:
+        ans = input(f"  escribir? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        console.print("\n[yellow]cancelado.[/yellow]")
+        return
+    if ans not in ("y", "yes", "s", "si", "sí"):
+        console.print("[yellow]cancelado.[/yellow]")
+        return
+
+    bak = None
+    if not is_new:
+        bak = path.with_name(path.name + f".bak.{int(time.time())}")
+        try:
+            bak.write_text(old_content)
+        except Exception as e:
+            _error(f"backup falló: {e}")
+            return
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(new_content)
+    except Exception as e:
+        _error(f"write falló: {e}")
+        return
+
+    msg = f"  [green]✓[/green] {path}  [dim]+{added} -{removed}  ({len(new_content)} bytes)[/dim]"
+    if bak:
+        msg += f"\n  [dim]backup: {bak.name}[/dim]"
+    console.print(msg)
+
+
 def cmd_help():
     t = Table(box=None, padding=(0, 2), show_header=False)
     t.add_column("cmd",  style="bold cyan", min_width=26)
@@ -648,6 +862,7 @@ def cmd_help():
         ("ws status",                "digest del workspace"),
         ("memory ls",                "ver memoria por temas"),
         ("memory search <query>",    "buscar en memoria semántica"),
+        ("/write <ruta>",            "escribir archivo con diff preview + backup"),
         ("/docs",                    "documentos indexados"),
         ("/vps",                     "estado del VPS"),
         ("/modo [nivel]",            "ver o cambiar modelo"),
@@ -726,6 +941,7 @@ def run():
         if cmd in ("/help", "/?", "/h"): cmd_help(); continue
         if cmd == "/ws":         cmd_ws(arg, s); continue
         if cmd == "/task":       cmd_task(arg, s); continue
+        if cmd == "/write":      cmd_write(arg, s); continue
         if cmd == "/cat":
             if arg:
                 s.categoria = arg

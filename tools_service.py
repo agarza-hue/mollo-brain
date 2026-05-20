@@ -1,7 +1,33 @@
 """Herramientas que Mollo puede ejecutar — web, VPS, n8n, memoria, divisas."""
-import subprocess, json, os
+import subprocess, json, os, difflib
 import httpx
+from contextvars import ContextVar
 from config import N8N_URL, N8N_WEBHOOK_SECRET, BANXICO_TOKEN
+
+# Buffer de eventos estructurados por request (para que stream_agent_* los emita
+# al CLI sin contaminar lo que ve el LLM como resultado de la tool).
+_tool_events: ContextVar[list | None] = ContextVar("mollo_tool_events", default=None)
+
+def begin_tool_events() -> list[dict]:
+    """Inicializa el buffer de eventos para la request actual. Llamar al inicio
+    de stream_agent_*."""
+    events: list[dict] = []
+    _tool_events.set(events)
+    return events
+
+def drain_tool_events() -> list[dict]:
+    """Devuelve y limpia los eventos acumulados (no-op si no hay buffer)."""
+    lst = _tool_events.get()
+    if not lst:
+        return []
+    out = list(lst)
+    lst.clear()
+    return out
+
+def _push_tool_event(ev: dict) -> None:
+    lst = _tool_events.get()
+    if lst is not None:
+        lst.append(ev)
 
 # ── Definiciones para Claude ──────────────────────────────────────────────────
 
@@ -764,10 +790,57 @@ def _leer_archivo(ruta: str, desde: int | None = None, hasta: int | None = None)
 def _escribir_archivo(ruta: str, contenido: str) -> str:
     import os
     ruta = _check_ruta(ruta)
+    is_new = not os.path.exists(ruta)
+    old_content = ""
+    if not is_new:
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                old_content = f.read()
+        except Exception:
+            old_content = ""
     os.makedirs(os.path.dirname(ruta), exist_ok=True)
     with open(ruta, "w", encoding="utf-8") as f:
         f.write(contenido)
     lines = contenido.count("\n") + 1
+    # Evento estructurado para el CLI (no afecta lo que ve el LLM)
+    try:
+        MAX_LINES = 200
+        if is_new:
+            new_lines = contenido.splitlines()
+            ev = {
+                "type": "write",
+                "path": ruta,
+                "is_new": True,
+                "diff_lines": None,
+                "new_preview": new_lines[:MAX_LINES],
+                "added": len(new_lines),
+                "removed": 0,
+                "truncated": len(new_lines) > MAX_LINES,
+            }
+        else:
+            diff = list(difflib.unified_diff(
+                old_content.splitlines(), contenido.splitlines(),
+                fromfile="a", tofile="b", n=3, lineterm=""
+            ))
+            added   = sum(1 for d in diff[2:] if d.startswith("+") and not d.startswith("+++"))
+            removed = sum(1 for d in diff[2:] if d.startswith("-") and not d.startswith("---"))
+            body = diff[2:]
+            truncated = len(body) > MAX_LINES
+            if truncated:
+                body = body[:MAX_LINES]
+            ev = {
+                "type": "write",
+                "path": ruta,
+                "is_new": False,
+                "diff_lines": body,
+                "new_preview": None,
+                "added": added,
+                "removed": removed,
+                "truncated": truncated,
+            }
+        _push_tool_event(ev)
+    except Exception:
+        pass
     return f"✅ Archivo escrito: {ruta} ({lines} líneas)"
 
 _DEV_COMMANDS: dict[str, str] = {

@@ -133,13 +133,27 @@ _SYSTEM_CACHED_STATIC = [
 
 
 def _get_system_blocks() -> list[dict]:
-    """Construye los bloques de system prompt: MOLLO_SYSTEM + (opcional) CLAUDE.md
-    del usuario. Cada bloque tiene su propio cache_control — Anthropic los
-    cachea independientemente, así que cuando CLAUDE.md cambie sólo se
-    invalida ese bloque.
+    """Construye los bloques de system prompt: MOLLO_SYSTEM + PRINCIPAL_TELOS
+    + (opcional) CLAUDE.md del usuario. Cada bloque tiene su propio
+    cache_control — Anthropic los cachea independientemente, así que cuando
+    cambie un bloque (typical: TELOS update) sólo se invalida ese bloque.
     """
     from user_context_service import get_user_claude_md_section
     blocks = list(_SYSTEM_CACHED_STATIC)
+    # PRINCIPAL_TELOS — quién es el user, qué busca, cómo decide.
+    # Patrón robado del repo PAI: cada request lleva la vista comprimida
+    # de identity para que el modelo no responda como genérico assistant.
+    try:
+        from telos_service import load_principal_telos
+        telos_text = load_principal_telos()
+        if telos_text.strip():
+            blocks.append({
+                "type": "text",
+                "text": "# Usuario — TELOS (identity & goals)\n\n" + telos_text,
+                "cache_control": {"type": "ephemeral"},
+            })
+    except Exception:
+        pass  # telos_service ausente o archivos rotos no debe tumbar el chat
     user_section = get_user_claude_md_section()
     if user_section:
         blocks.append({
@@ -401,13 +415,14 @@ async def stream_agent(
     se muestra el nombre, se ejecuta, y el loop continúa con el resultado.
     """
     import json as _json
-    from tools_service import select_tools, execute_tool
+    from tools_service import select_tools, execute_tool, begin_tool_events, drain_tool_events
 
     messages = _build_messages(
         pregunta, doc_context, memory_context, business_context, learnings_context, topic_memory
     )
     cached_tools = _tools_with_cache(select_tools(pregunta))
     total_input = total_output = total_cached = 0
+    begin_tool_events()
 
     for _ in range(MAX_AGENT_ITERATIONS):
         async with async_client.messages.stream(
@@ -439,6 +454,8 @@ async def stream_agent(
                 if block.type == "tool_use":
                     yield f"\n_🔧 {block.name}…_\n"
                     result = await execute_tool(block.name, block.input)
+                    for ev in drain_tool_events():
+                        yield f"\x05{_json.dumps(ev)}\n"
                     tool_results.append({
                         "type": "tool_result",
                         "tool_use_id": block.id,

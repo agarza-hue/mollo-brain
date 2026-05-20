@@ -153,7 +153,17 @@ NOTA: el bind-mount de archivo individual (juntas_nginx default.conf) se rompe
 con Edit del host (atomic rename cambia inode). Después de editar, `docker
 restart juntas_nginx` para resincronizar."""
 
-MOLLO_SYSTEM_AGENT = MOLLO_SYSTEM + _VPS_CONTEXT
+_TOOL_USE_DIRECTIVE = """
+
+REGLA CRÍTICA DE TOOL USE:
+- Si el usuario menciona una ruta de archivo (ej. /root/..., /var/..., .py, .md, .json), USA `leer_archivo`. NO inventes contenido.
+- Si pide ejecutar, reiniciar o ver estado de un servicio: USA `bash` o `estado_vps`.
+- Si pide buscar en internet o info actual: USA `buscar_web`.
+- Si pide modificar/crear un archivo: USA `escribir_archivo`.
+- Si NO estás 100% seguro del contenido de algo concreto: USA la tool relevante en lugar de adivinar.
+- Solo responde de memoria cuando la pregunta es conceptual o no referencia algo específico del sistema."""
+
+MOLLO_SYSTEM_AGENT = MOLLO_SYSTEM + _VPS_CONTEXT + _TOOL_USE_DIRECTIVE
 
 MAX_AGENT_ITERATIONS = 8
 
@@ -428,7 +438,7 @@ async def stream_agent_openai(
     system_prompt: str | None = None,
 ):
     import json as _json
-    from tools_service import select_tools, execute_tool
+    from tools_service import select_tools, execute_tool, begin_tool_events, drain_tool_events
 
     messages     = _build_agent_messages(
         pregunta, doc_context, memory_context,
@@ -436,6 +446,7 @@ async def stream_agent_openai(
     )
     openai_tools = _claude_tools_to_openai(select_tools(pregunta))
     total_input = total_output = total_cached = 0
+    begin_tool_events()  # buffer para eventos estructurados (writes con diff, etc.)
 
     for _ in range(MAX_AGENT_ITERATIONS):
         response = client.chat.completions.create(
@@ -477,6 +488,9 @@ async def stream_agent_openai(
                 inputs = json.loads(tc.function.arguments)
                 yield f"\n_🔧 Ejecutando: {tc.function.name}…_\n"
                 result = await execute_tool(tc.function.name, inputs)
+                # Drenar eventos estructurados que la tool haya emitido
+                for ev in drain_tool_events():
+                    yield f"\x05{_json.dumps(ev)}\n"
                 messages.append({
                     "role":         "tool",
                     "tool_call_id": tc.id,
