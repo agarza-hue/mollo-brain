@@ -8,8 +8,10 @@ Estos archivos del repo **son** los que corren en producción. `/opt/mollo-teleg
 contiene **symlinks** que apuntan aquí:
 
 ```
-/opt/mollo-telegram/bot.py      -> /root/mollo_brain/telegram/bot.py
-/opt/mollo-telegram/noticias.py -> /root/mollo_brain/telegram/noticias.py
+/opt/mollo-telegram/bot.py              -> /root/mollo_brain/telegram/bot.py
+/opt/mollo-telegram/noticias.py         -> /root/mollo_brain/telegram/noticias.py
+/opt/mollo-telegram/tareas.py           -> /root/mollo_brain/telegram/tareas.py
+/opt/mollo-telegram/ingest_knowledge.py -> /root/mollo_brain/telegram/ingest_knowledge.py
 ```
 
 Editá aquí y commiteá; el cambio queda live tras `systemctl restart mollo-telegram`.
@@ -23,7 +25,9 @@ Editá aquí y commiteá; el cambio queda live tras `systemctl restart mollo-tel
 ## Servicios systemd
 - `mollo-telegram.service` → `bot.py` (este bot).
 - `mollo-autonomo.service` → `tareas.py` (scheduler; también importa `noticias.py`).
-  `tareas.py` sigue viviendo solo en `/opt` (aún no traído al repo).
+
+`ingest_knowledge.py` es un script standalone (ingesta PDF/Word/Excel al RAG); no
+lo corre ningún servicio, se invoca a mano.
 
 ## Operación
 ```bash
