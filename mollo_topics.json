@@ -1,166 +1,159 @@
 {
   "finanzas": {
-    "resumen": "Se proponen convertirse en proveedor de software a medida o SaaS en el mercado estadounidense con $50,000 USD en ingresos antes de diciembre de 2026, priorizando la decisión de cómo entrar y evaluando un plan financiero Q2 2026 con OKRs.",
+    "resumen": "Adolfo solicitó la auditoría de 10 archivos modificados en el repositorio, analizando los cambios funcionales y estados de cada archivo.",
     "hechos_clave": [
-      "Se evalúa la opción de convertirse en proveedor de software a medida o SaaS.",
-      "Meta de ingresos en el mercado estadounidense: $50,000 USD antes de diciembre de 2026.",
-      "Ticket promedio: $25,000 MXN / $1,433 USD.",
-      "Proyectos activos: MolloIA, Juntas App y SinergyOS.",
-      "Prioridad estratégica para hoy: 'Decidir si entrar a USA como proveedor de software a medida o como SaaS.'",
-      "Meta de clientes fin de año: 5.",
-      "Brecha hasta la meta de clientes fin de año: 2 clientes nuevos."
+      "La auditoría de los archivos identificó diferentes estados, incluyendo 'listo', 'WIP', 'data-only' y 'mezcla'.",
+      "Se encontró que la mayoría de los archivos tenían un estado 'listo'.",
+      "Se detectaron cambios significativos en los archivos 'briefing_service.py', 'claude_service.py', 'embeddings.py' y 'main.py'.",
+      "Agrupación sugerida propuesta para varios commits relacionados."
     ],
     "pendientes": [
-      "Decidir si entrar a USA como proveedor de software a medida o como SaaS.",
-      "Crear un plan financiero Q2 2026 con OKRs.",
-      "Reinicio y monitoreo del servicio `mollo_brain`",
-      "Desarrollo del Programa de Referidos.",
-      "Revisar el documento financiero [tmpukot3w3o.txt] para comprender los costos asociados.",
-      "- Las tecnologías fijas (no se cambian) son Node.js y Express para el backend y React para el frontend.",
-      "- Límites presupuestarios de $10,000 MXN para hardware y $5,000 MXN para software.",
-      "- Integraciones obligatorias con el sistema de correo electrónico y la base de datos de clientes.",
-      "- El sistema definitivamente no utilizará servidores virtuales como DigitalOcean o AWS."
+      "Grupos de commits para la revisión: 'briefing', 'claude', 'embeddings', 'main' y 'agrupación sugerida'.",
+      "Revisión de la documentación del proyecto para reflejar los cambios en el stack.",
+      "Revisión de la arquitectura de comunicaciones para mejorar la calidad de servicio."
     ],
-    "actualizado": "2026-05-10T01:27:48.598787",
-    "conversaciones_procesadas": 76
+    "actualizado": "2026-05-19T23:17:54.935170",
+    "conversaciones_procesadas": 95
   },
   "estrategia": {
-    "resumen": "Mollo está trabajando en construir una capa de inteligencia operativa propia con objetivos de negocio que incluyen generar $50,000 USD en ingresos desde clientes de USA antes de diciembre de 2026. La ventaja competitiva es la soberanía tecnológica en el mercado de LATAM. Necesita desarrollar un manual de identidad corporativa y planes de crecimiento.",
+    "resumen": "Continuamos con la auditoría de Mollo con 6 archivos/directorio UNTRACKED, identificamos problemas en MolloIA y Vantamedia, y debemos implementar cambios en la arquitectura para optimizar costo y capacidad de computo. Nuestros objetivos son vender 2 clientes antes del 31/12/2026 y mantener un mejor desempeño (best in class).",
     "hechos_clave": [
-      "El objetivo es generar $50,000 USD en ingresos desde clientes de USA antes de diciembre de 2026.",
-      "La meta de clientes fin del año es 5.",
-      "La estrategia de ingreso al mercado estadounidense es software a medida o SaaS.",
-      "El uso de CPU es del 43,5%.",
-      "La RAM está en 58,6% de uso.",
-      "El VPS tiene 21 contenedores activos.",
-      "El disco está en 80% de uso.",
-      "El servicio 'mollo_brain' sigue sin respuesta y requiere atención inmediata."
+      "Objetivo para vender 2 clientes antes del 31/12/2026",
+      "Tasa de cierre objetivo es ≥33%",
+      "Ciclo de venta objetivo es ≤30 días",
+      "Ticket promedio objetivo es $25,000 MXN por proyecto",
+      "Pipeline activo debe mantenerse en 6 prospectos en todo momento",
+      "Se experimentan dificultades en MolloIA y Vantamedia",
+      "Se ejecutó outreach con los 3 clientes activos",
+      "6 archivos/directorio UNTRACKED: containment_guard.py, isa_service.py, isas/, routers/pai.py, telos/, telos_service.py",
+      "Implementar arquitectura Mac Mini + VPS para optimizar costo y capacidad de computo"
     ],
     "pendientes": [
-      "Crear Manual de Identidad Corporativa para BION Business",
-      "Desarrollar plan de marketing para el mercado estadounidense",
-      "Reiniciar y monitorear el servicio 'mollo_brain'",
-      "Definir planes de crecimiento para los próximos 6 meses"
+      "Resolver problemas en proyectos MolloIA y Vantamedia",
+      "Validar disco del VPS",
+      "Incluir contexto relevante en los prompts",
+      "Definir objetivo específico para cada sesión",
+      "Implementar cambios en la arquitectura para optimizar costo y capacidad de computo"
     ],
-    "actualizado": "2026-05-10T01:07:23.782479",
-    "conversaciones_procesadas": 165
+    "actualizado": "2026-05-19T23:21:23.200212",
+    "conversaciones_procesadas": 211
   },
   "ventas": {
-    "resumen": "La estrategia de ventas de BION Business para el mercado estadounidense busca generar $50,000 USD en revenue antes de diciembre 2026. Actualmente, se están estableciendo KPIs para medir la productividad de los equipos de ventas y programadores. En el corto plazo, se requiere cerrar 2 nuevos clientes en 90 días y lograr $37,500 USD en revenue en USA para el objetivo Q2. Se está evaluando si entrar al mercado estadounidense como proveedor de software a medida o como SaaS.",
+    "resumen": "Se está desarrollando un backend llamado Mollo Brain utilizando FastAPI, que actúa como asistente personal de Adolfo y como un software como servicio (SaaS) para clientes externos bajo el nombre de SinergyOS. Actualmente, se están implementando medidas para estabilizar el servicio y cerrar nuevas ventas, se revisaron 6 archivos/dirs untracked y se definió el plan de commits. Se está trabajando en un plan de acción para cerrar 1 nuevo cliente en LATAM y armar plan de prospección para los 2 clientes faltantes en el G5.",
     "hechos_clave": [
-      "Estrategia GTM para LATAM se centra en cerrar 2 nuevos clientes en 90 días (2025-2026)",
-      "Objetivo estratégico para USA: generar $50,000 USD en revenue antes de diciembre 2026",
-      "Ticket promedio: $25,000 MXN / $1,433 USD",
-      "Ingreso mensual estimado: ~$75,000 MXN",
-      "Meta de clientes fin de año: 5",
-      "Brecha: 2 clientes nuevos necesarios",
-      "Necesidad de decidir si entrar a USA como proveedor de software a medida o como SaaS"
+      "Servicio `mollo_brain` con historial de fallas recurrentes",
+      "ISA en ejecución desde el 12/05/2025 para cerrar 2 clientes nuevos",
+      "Semanas 1 del plan de prospección iniciada el 11/05/2026",
+      "80% del disco lleno - límite de alerta activo",
+      "Meta de clientes activos: 5 antes del 31 de diciembre de 2026",
+      "Ticket promedio: $25,000 MXN",
+      "Plan de acción para cerrar 1 nuevo cliente en LATAM en ejecución",
+      "Stack de Mollo Brain incluye FastAPI, PostgreSQL y Qdrant"
     ],
     "pendientes": [
       "Crear plan de acción para cerrar 1 nuevo cliente en LATAM",
-      "Revisar y ajustar KPIs para medir productividad de los equipos de ventas y programadores",
-      "Definir arquitectura y estado actual de IPTV",
-      "Desarrollar manual de identidad para la empresa boutique de consultoría B2B",
-      "Revisar el estado del VPS"
+      "Armar plan de prospección para los 2 clientes faltantes en el G5",
+      "Validar servicio `mollo_brain`",
+      "Resolver problemas de estabilidad en `mollo_brain`",
+      "Comité 4 de revisión de commits (fechas y commits incluirán en el plan final de commits)"
     ],
-    "actualizado": "2026-05-09T23:31:31.064714",
-    "conversaciones_procesadas": 117
+    "actualizado": "2026-05-19T23:21:23.797315",
+    "conversaciones_procesadas": 142
   },
   "vps_infra": {
-    "resumen": "Se están gestionando múltiples proyectos activos en el contexto personal de Adolfo, incluyendo SaaS de IA, plataformas financieras y consultorías. Todos los proyectos tienen enfoques diversos, desde comercialización hasta consultoría en transformación digital e infraestructura técnica. Además, se está dando seguimiento a una app personal de gestión que está en desarrollo. Es crucial mantener actualizada la memoria sobre estos proyectos para una mejor organización y priorización.",
+    "resumen": "El VPS de Mollo está en estado crítico debido a un 80% de capacidad de disco y presenta fallas recurrentes en su historial. Se requiere resolver fallas recur- rentes, actualizar Mollo IA y implementar la arquitectura propuesta Mac Mini + VPS. Hay archivos/directo- rios UNTRACKED que deben ser revisados y agrupados en commits. Se ha detectado la necesidad de 4 nuevos commits.",
     "hechos_clave": [
-      "Proyectos activos incluyen MolloIA, Vantamedia, SinergyOS, Strategy OS, Excel RE Platform, IPTV y Juntas & Pendientes.",
-      "MolloIA está en comercialización con tarifas de $19/mes Pro y $49/asiento Team."
+      "El VPS está al 80% de capacidad de disco",
+      "La base de datos de MolloIA es PostgreSQL y se conecta en el puerto 5434",
+      "Hay fallas recurrentes en el historial del VPS",
+      "El disco del VPS tiene una alerta activa",
+      "Hay 6 archivos/directo- rios UNTRACKED: containment_guard.py, isa_service.py, isas/, routers/pai.py, telos/, telos_service.py"
     ],
     "pendientes": [
-      "Actualizar la memoria con la nueva información",
-      "Revisar si hay nuevas acciones pendientes luego de la integración"
+      "Resolver fallas recurrentes en el historial del VPS",
+      "Resolver P2 pendientes de Vantamedia",
+      "Actualizar Mollo IA para reflejar nuevas conversiones",
+      "Resolver la alerta activa en el disco del VPS",
+      "Implementar la arquitectura propuesta Mac Mini + VPS",
+      "Revisar y agrupar los 6 archivos/directo- rios UNTRACKED en commits"
     ],
-    "actualizado": "2026-05-09T23:31:33.273125",
-    "conversaciones_procesadas": 180
+    "actualizado": "2026-05-19T23:21:24.551820",
+    "conversaciones_procesadas": 223
   },
   "rrhh": {
-    "resumen": "El equipo de RRHH está trabajando en la expansión hacia LATAM y valorando la entrada al mercado de USA, buscando generar $50,000 USD en revenue de clientes estadounidenses antes de diciembre de 2026.",
+    "resumen": "El contrato para el ISA de software a medida está fuera de track. La sección \"Verification\" sigue vacía y no hay evidencia registrada de outreach ejecutado. El Pipeline actual de software a medida tiene 3 clientes activos y ticket promedio de $25,000 MXN, pero debe mantenerse en 6 o más contactos en conversación. El ISA establece un target de 2 contratos cerrados antes del 31 de diciembre de 2026 y requiere un plan de prospección estructurado.",
     "hechos_clave": [
-      "Meta de generar $50,000 USD en revenue de clientes estadounidenses antes de diciembre de 2026",
-      "Expansión al mercado LATAM, enfocándose en logística y e-commerce",
-      "Considerando entrar a USA como proveedor de software a medida o como SaaS (MolloIA)",
-      "Desarrollo del Manual de Identidad Corporativa para BION Business",
-      "Inicio del desarrollo de un manual de operaciones para el call center, incluyendo onboarding, escalaciones y métricas",
-      "Plan financiero Q2: objetivo de $150,000 MXN (~$7,500 USD) en ingresos mensuales",
-      "Meta del Q2: cerrar 3 contratos con clientes estadounidenses",
-      "Proyectos activos: MolloIA, Juntas App y SinergyOS"
+      "Pipeiline actual de software a medida tiene 3 clientes activos y ticket promedio de $25,000 MXN",
+      "Pipeline activo debe mantenerse en 6 o más contactos en conversación",
+      "El ISA establece un target de 2 contratos cerrados antes del 31 de diciembre de 2026",
+      "El ISA requiere un plan de prospección estructurado",
+      "El disco del VPS está al 80% y requiere validación antes de cualquier otro movimiento"
     ],
     "pendientes": [
-      "Decidir si entrar a USA como proveedor de software a medida o como SaaS (MolloIA)",
-      "Definir una estrategia efectiva de captación de clientes en LATAM",
-      "Finalizar el Manual de Identidad Corporativa para BION Business",
-      "Completar el módulo de onboarding en el manual de operaciones del call center",
-      "Cerciorarse de que el plan financiero Q2 se ajuste a los objetivos de la empresa"
+      "Actualizar la sección \"Verification\" del ISA con evidencia de outreach ejecutado",
+      "Revisar y actualizar el plan de prospección estructurado",
+      "Enviar mensajes a los 3 clientes activos pidiendo 1 referido cada uno",
+      "Revisar y actualizar el estado de MolloIA, Vantamedia y SinergyOS"
     ],
-    "actualizado": "2026-05-09T22:16:03.744298",
-    "conversaciones_procesadas": 41
+    "actualizado": "2026-05-19T06:00:56.980272",
+    "conversaciones_procesadas": 55
   },
   "proyectos": {
-    "resumen": "BION Business buscará expandirse al mercado estadounidense con un presupuesto de $50,000 USD para antes de diciembre de 2026. Los proyectos MolloIA, Vantamedia, SinergyOS, y otros estarán involucrados. Se enfoca en generar metas, estructurar planes y definir OKRs. La estrategia para USA no implicará la apertura de una entidad legal en la fase 1.",
+    "resumen": "Proyectos activos incluyen ISA para cerrar 2 clientes de software a medida con un deadline del 31 de diciembre de 2026. También trabajamos en proyectos activos, incluyendo enviar mensajes a clientes activos pidiendo referidos, activar outreach frío segmentado y resolver blockers y priorizaciones.",
     "hechos_clave": [
-      "Adolfo busca expandir BION Business hacia el mercado estadounidense con un objetivo de generar $50,000 USD en ingresos antes de diciembre de 2026.",
-      "La expansión a USA se realizará sin abrir entidad legal en la primera fase.",
-      "Ticket promedio: $25,000 MXN / $1,433 USD",
-      "Meta de clientes fin de año en software a medida: 5",
-      "Meta USA: $50,000 USD antes de dic 2026",
-      "Meta de clientes nuevos: 2",
-      "Proyectos activos incluyen: MolloIA, Vantamedia, SinergyOS, Strategy OS, Excel RE Platform, IPTV."
+      "ISA para cerrar 2 clientes de software a medida está fuera de track.",
+      "ISA Plan de Prospección: 2 Clientes Nuevos Software a Medida",
+      "Ticket objetivo $25,000 MXN",
+      "Deadline para cerrar 2 clientes: 31 de diciembre de 2026",
+      "Línea tres desconocida",
+      "Archivo /root/mollo_brain/CLAUDE.md contiene el contexto personal de Adolfo",
+      "Actualizado estado de briefing_service.py: listo",
+      "Actualizado estado de claude_service.py: mezcla",
+      "Actualizado estado de embeddings.py: listo"
     ],
     "pendientes": [
-      "Definir el modelo de entrada a USA",
-      "Determinar OKRs para Q2",
-      "Estructurar un plan para empezar con Reader de manera efectiva",
-      "Usar metodología spec-kit"
+      "Enviar mensajes a clientes activos pidiendo referidos",
+      "Activar outreach frío segmentado si canales 1-2 no generan pipeline suficiente",
+      "Resolver blockers y priorizaciones",
+      "Investigar sobre 'línea tres'",
+      "Aclarar contexto de Línea Tres"
     ],
-    "actualizado": "2026-05-10T01:27:49.163397",
-    "conversaciones_procesadas": 102
+    "actualizado": "2026-05-19T23:17:55.745884",
+    "conversaciones_procesadas": 131
   },
   "automatizacion": {
-    "resumen": "Adolfo está creando una capa de inteligencia operativa propia, utilizando metodología spec-kit y enfocándose en la soberanía tecnológica. Está acumulando contexto para que MolloIA aprenda sobre el negocio del cliente. Los proyectos activos incluyen MolloIA, Vantamedia y otras iniciativas. El objetivo es competir en el mercado LATAM.",
+    "resumen": "La auditoría reveló archivos no trackeados con modificaciones de servicios de briefing, embeddings, Claude, CLI, topics y tools. Se identificó cambios funcionales y se analizaron las commit messages. Se propusieron 5 commits agrupados y 6 archivos/dirs no trackeados. Se agregó una descripción de los 6 archivos/dirs no trackeados y se planificó un plan final de commits.",
     "hechos_clave": [
-      "Está creando una capa de inteligencia operativa propia independiente de un solo proveedor.",
-      "Tiene memoria persistente y routing multi-tier.",
-      "Está acumulando contexto para que MolloIA aprenda el negocio del cliente.",
-      "Tiene una obsesión central por la soberanía tecnológica como ventaja competitiva.",
-      "Está utilizando VPS propio, brain propio e identidad propia.",
-      "El patrón es la soberanía tecnológica como ventaja competitiva en el mercado LATAM.",
-      "Tiene plan financiero Q2 documentado."
+      "Se agregó la generación y envío por Telegram de weekly ISA review vía `isa-review <isa_id>` en briefing_service.py",
+      "Se inyecta TELOS al system prompt de Claude y se transmiten eventos estructurados de tools al stream en claude_service.py",
+      "Se truncó texto a 4000 caracteres antes de pedir embeddings a Ollama en embeddings.py",
+      "Se actualizó el archivo _test_groq_diff.txt a petición de Adolfo",
+      "Se amplía la integración de Groq en Mollo mediante una nueva ruta de chat no-agente y mejoras en el agente/tooling.",
+      "Se busca crear arquitectura en producción para Mac Mini + VPS."
     ],
     "pendientes": [
-      "Definir estrategia para aumentar la brecha de clientes.",
-      "Revisar código del servicio 'mollo_brain'.",
-      "Diagnosticar problema persistente con 'mollo_brain'",
-      "Crear documento de especificación de reglas constitution"
+      "Probar la integración de Claude como motor de Mollo",
+      "Validar servicio molló_brain con nuevo esquema de recursos",
+      "Crear arquitectura en producción para Mac Mini + VPS.",
+      "Evidenciar primer contacto en el pipeline activo",
+      "Actualizar archivo _test_groq_diff.txt"
     ],
-    "actualizado": "2026-05-10T01:27:49.610244",
-    "conversaciones_procesadas": 212
+    "actualizado": "2026-05-19T23:21:32.283898",
+    "conversaciones_procesadas": 269
   },
   "iso9001": {
-    "resumen": "El objetivo estratégico de InsForge es generar $50,000 USD en ingresos de clientes estadounidenses antes de diciembre 2026. El servicio `mollo_brain` necesita un diagnóstico detallado y posible revisión del código. Se busca eliminar la desalineación entre Personas, Sistemas y Procesos en las organizaciones. Se utilizará metodología spec-kit.",
+    "resumen": "Se han detectado archivos y directorios no rastreados durante la auditoría. Se les ha descrito el contenido y se han propuesto agrupaciones con comits previos.",
     "hechos_clave": [
-      "El objetivo estratégico de InsForge es generar $50,000 USD en revenue desde clientes estadounidenses antes de diciembre 2026.",
-      "El servicio `mollo_brain` necesita un diagnóstico detallado y posible revisión del código.",
-      "La hora actual en Monterrey es 2:00 PM.",
-      "La RAM está en 58.6% de uso.",
-      "El VPS tiene un uso de CPU moderado al 43.5% y el disco está al 48% de capacidad.",
-      "El objetivo de InsForge es cumplir con la ISO 9001 para mejorar la calidad y satisfacción del cliente.",
-      "MolloIA es una posible opción para InsForge.",
-      "InsForge necesita cumplir con las normas y certificaciones pertinentes relacionadas con la calidad y la seguridad de los datos."
+      "Se descubrieron 6 archivo/dir no rastreados durante la segunda pasada de auditoría.",
+      "Se describió el contenido de: containment_guard.py, isa_service.py, isas/, routers/pai.py, telos/, telos_service.py.",
+      "Se propuso agrupar contenidos con comits previos: cont_guard con commit#3,"
     ],
     "pendientes": [
-      "Decidir si entrar al mercado USA como proveedor de software a medida o como SaaS (MolloIA).",
-      "Realizar un diagnóstico detallado y posible revisión del código del servicio `mollo_brain`.",
-      "Resolver el problema persistente con `mollo_brain`.",
-      "Asegurar el correcto funcionamiento de los servicios críticos según el diagnóstico del VPS.",
-      "Cumplir con la metodología spec-kit y las reglas constitution."
+      "Revisar comits de agrupación propuestos y realizar ajustes si necesario",
+      "Revisar contenido de archivos/dir no rastreados y asegurarse de que estén actualizados",
+      "Ejecutar comits finalmente una vez revisados y ajustados"
     ],
-    "actualizado": "2026-05-10T01:28:02.362312",
-    "conversaciones_procesadas": 113
+    "actualizado": "2026-05-19T23:21:45.893350",
+    "conversaciones_procesadas": 130
   }
 }
