@@ -24,9 +24,10 @@ from openai_brain import (
     GPT_MINI, GPT_4O,
 )
 from gemini_brain import chat_gemini, stream_chat_gemini, GEMINI_FLASH_LITE
-from groq_brain import run_agent_groq, stream_agent_groq, LLAMA_70B
+from groq_brain import run_agent_groq, stream_agent_groq, chat_groq, stream_chat_groq, LLAMA_70B
+from codex_brain import run_codex, stream_codex
 from memory_service import save_turn, save_learning, get_semantic_context, get_business_context, get_learnings_context
-from openai_service import extract_learning, classify_complexity
+from openai_service import extract_learning, classify_complexity, needs_tools
 from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
 import cost_service
 from insforge import get_tenant, increment_usage, orchestrate_tenant
@@ -61,9 +62,11 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 MODELO_LABEL = {
     "ligero":   "Gemini 2.5 Flash-Lite",
     "simple":   f"GPT-4o-mini",
+    "rapido":   "Llama 3.3 70B (Groq)",
     "medio":    f"GPT-4o",
     "complejo": "Claude Sonnet 4.6",
     "agente":   f"GPT-4o + tools",
+    "codex":    "Codex CLI + filesystem",
 }
 
 
@@ -73,11 +76,18 @@ class ChatRequest(BaseModel):
     top_k: int = 5
     session_id: str = "default"
     usar_memoria: bool = True
-    modo: Optional[str] = None  # "ligero"|"simple"|"medio"|"complejo"|"agente" | None (auto)
+    modo: Optional[str] = None  # "ligero"|"simple"|"rapido"|"medio"|"complejo"|"agente"|"codex" | None (auto)
+    # "rapido" → Llama 3.3 70B via Groq. 3x más rápido que GPT-4o, ~76% más barato.
+    # Sin caching, calidad ligeramente inferior a GPT-4o. Solo opt-in explícito
+    # (el auto-clasificador NO lo elige).
     # Backend para agente: "openai" (gpt-4o, default) | "groq" (llama-3.3-70b)
     # Sólo aplica cuando modo == "agente". Groq es 76% más barato y 3x más
     # rápido pero sin caching y tool use menos maduro.
     agente_provider: Optional[str] = "openai"
+    # Sólo aplica cuando modo == "codex". Directorio donde Codex CLI debe operar.
+    # Si None, codex_brain usa os.getcwd() del proceso mollo-brain (suele NO ser
+    # lo que quieres) — el caller (ej. MCP) debería pasarlo explícito.
+    workdir: Optional[str] = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -199,7 +209,10 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
                    memory_context: str, business_ctx: str,
                    learnings_ctx: str, topic_memory: str,
                    system_prompt: str | None = None,
-                   agente_provider: str = "openai") -> tuple[str, dict]:
+                   agente_provider: str = "openai",
+                   workdir: str | None = None) -> tuple[str, dict]:
+    if modo == "codex":
+        return await run_codex(pregunta, workdir=workdir)
     kwargs = dict(
         pregunta=pregunta,
         doc_context=doc_context,
@@ -217,6 +230,8 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
         return chat_gemini(**kwargs, model=GEMINI_FLASH_LITE)
     if modo == "simple":
         return chat_openai(**kwargs, model=GPT_MINI)
+    if modo == "rapido":
+        return chat_groq(**kwargs, model=LLAMA_70B)
     if modo == "medio":
         return chat_openai(**kwargs, model=GPT_4O)
     return chat_with_rag(**kwargs)
@@ -226,7 +241,12 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
                   memory_context: str, business_ctx: str,
                   learnings_ctx: str, topic_memory: str,
                   system_prompt: str | None = None,
-                  agente_provider: str = "openai"):
+                  agente_provider: str = "openai",
+                  workdir: str | None = None):
+    if modo == "codex":
+        async for chunk in stream_codex(pregunta, workdir=workdir):
+            yield chunk
+        return
     kwargs = dict(
         pregunta=pregunta,
         doc_context=doc_context,
@@ -236,6 +256,12 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
         topic_memory=topic_memory,
         system_prompt=system_prompt,
     )
+    # Smart routing: solo cargamos agent loop (tools schema + system prompt
+    # extendido) cuando la query da señales de necesitar tools. Para chit-chat
+    # y queries conceptuales, chat path ahorra ~1100 tokens y ~3-5s latencia.
+    # `agente` (explícito) y `ligero` no pasan por este check.
+    tools_needed = needs_tools(pregunta) if modo not in ("agente", "ligero") else False
+
     if modo == "agente":
         if agente_provider == "groq":
             async for chunk in stream_agent_groq(**kwargs, model=LLAMA_70B):
@@ -247,14 +273,34 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
         async for chunk in stream_chat_gemini(**kwargs, model=GEMINI_FLASH_LITE):
             yield chunk
     elif modo == "simple":
-        async for chunk in stream_chat_openai(**kwargs, model=GPT_MINI):
-            yield chunk
+        if tools_needed:
+            async for chunk in stream_agent_openai(**kwargs, model=GPT_MINI):
+                yield chunk
+        else:
+            async for chunk in stream_chat_openai(**kwargs, model=GPT_MINI):
+                yield chunk
+    elif modo == "rapido":
+        if tools_needed:
+            async for chunk in stream_agent_groq(**kwargs, model=LLAMA_70B):
+                yield chunk
+        else:
+            async for chunk in stream_chat_groq(**kwargs, model=LLAMA_70B):
+                yield chunk
     elif modo == "medio":
-        async for chunk in stream_chat_openai(**kwargs, model=GPT_4O):
-            yield chunk
-    else:  # complejo → Claude
-        async for chunk in stream_chat_with_rag(**kwargs):
-            yield chunk
+        if tools_needed:
+            async for chunk in stream_agent_openai(**kwargs, model=GPT_4O):
+                yield chunk
+        else:
+            async for chunk in stream_chat_openai(**kwargs, model=GPT_4O):
+                yield chunk
+    else:  # complejo → Claude (agent si hay intent de tools, chat si no)
+        if tools_needed:
+            claude_kwargs = {k: v for k, v in kwargs.items() if k != "system_prompt"}
+            async for chunk in stream_agent(**claude_kwargs):
+                yield chunk
+        else:
+            async for chunk in stream_chat_with_rag(**kwargs):
+                yield chunk
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
@@ -343,10 +389,16 @@ async def ask_mollo(
     if modo == "ligero":
         doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
 
+    # Codex lee los archivos del proyecto directamente — todo el contexto de
+    # Mollo (RAG, memoria, business, learnings) es ruido y desperdicia tokens.
+    if modo == "codex":
+        doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
+
     respuesta, usage = await _respond(
         modo, req.pregunta, doc_context,
         memory_context, business_ctx, learnings_ctx, topic_memory,
         agente_provider=req.agente_provider or "openai",
+        workdir=req.workdir,
     )
 
     _save_in_background(background_tasks, req.pregunta, respuesta,
@@ -475,6 +527,10 @@ async def stream_mollo(
     if modo == "ligero":
         doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
 
+    # Codex lee el filesystem — el contexto inyectado de Mollo es ruido.
+    if modo == "codex":
+        doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
+
     mollo_collected: list[str] = []
     mollo_usage: dict = {}
 
@@ -487,6 +543,7 @@ async def stream_mollo(
             modo, req.pregunta, doc_context,
             memory_context, business_ctx, learnings_ctx, topic_memory,
             agente_provider=req.agente_provider or "openai",
+            workdir=req.workdir,
         ):
             if chunk.startswith("\x03"):
                 try:
