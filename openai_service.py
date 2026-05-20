@@ -209,6 +209,49 @@ def _is_ligero(question: str) -> bool:
     return False
 
 
+# Palabras/frases que indican intención de usar tools. Compartido entre
+# classify_complexity (auto-routing a 'agente') y needs_tools (decide si un
+# modo explícito debe cargar tools schema o ir a chat puro).
+_TOOL_TRIGGERS = (
+    "busca", "búsca", "buscar", "internet", "web", "cotiza",
+    "ejecuta", "reinicia", "reiniciar", "estado del vps", "vps",
+    "envía", "enviar", "manda", "mandar", "workflow", "n8n",
+    "logs", "docker", "ahora mismo", "en este momento",
+    "qué hora", "que hora", "qué día es", "que dia es",
+    "qué fecha", "que fecha", "fecha de hoy",
+    "convierte", "convertir", "dólar", "dolares", "dólares",
+    "peso", "pesos", "mxn", "usd", "tipo de cambio",
+    "dropbox", "archivo", "descarga", "sube", "subir", "carpeta",
+    "pdf", "excel", "word", "analiza el archivo", "lee el archivo",
+    "lee ", "leer ", "abre ", "abrir ",
+    "edita", "modifica", "actualiza el", "cambia el", "agrega a",
+    "crea archivo", "crear archivo", "escribe en", "guarda en",
+    "código", "codigo", "función", "funcion", "clase ", "class ",
+    "muéstrame", "muestrame", "dime qué", "dime que",
+    "grep", "find ", "ls ", "cat ",
+)
+import re as _re
+_PATH_PATTERN = _re.compile(r"(?:^|\s)(/(?:root|var|etc|opt|tmp|home)/[\w./-]+)")
+_FILE_EXT_PATTERN = _re.compile(r"\.(?:py|md|json|ya?ml|sh|js|ts|tsx|jsx|html|css|conf|env|txt|sql|toml|ini)\b")
+
+
+def needs_tools(question: str) -> bool:
+    """Heurística: ¿esta query probablemente requiere tools?
+    Usa los mismos triggers que el auto-router más patrones de rutas/extensiones.
+    Conservador: ante duda, devuelve True (mejor cargar tools de más que alucinar).
+    """
+    if not question:
+        return False
+    q = question.lower()
+    if any(t in q for t in _TOOL_TRIGGERS):
+        return True
+    if _PATH_PATTERN.search(question):
+        return True
+    if _FILE_EXT_PATTERN.search(q):
+        return True
+    return False
+
+
 def classify_complexity(question: str) -> str:
     """
     Clasifica la consulta en niveles para routing de modelos:
@@ -225,19 +268,7 @@ def classify_complexity(question: str) -> str:
     q_lower = question.lower()
 
     # Triggers de herramientas (tienen prioridad sobre todo)
-    tool_triggers = [
-        "busca", "búsca", "buscar", "internet", "web", "cotiza",
-        "ejecuta", "reinicia", "reiniciar", "estado del vps", "vps",
-        "envía", "enviar", "manda", "mandar", "workflow", "n8n",
-        "logs", "docker", "ahora mismo", "en este momento",
-        "qué hora", "que hora", "qué día es", "que dia es",
-        "qué fecha", "que fecha", "fecha de hoy",
-        "convierte", "convertir", "dólar", "dolares", "dólares",
-        "peso", "pesos", "mxn", "usd", "tipo de cambio",
-        "dropbox", "archivo", "descarga", "sube", "subir", "carpeta",
-        "pdf", "excel", "word", "analiza el archivo", "lee el archivo",
-    ]
-    if any(t in q_lower for t in tool_triggers):
+    if any(t in q_lower for t in _TOOL_TRIGGERS):
         return "agente"
 
     # Triggers de alta complejidad → Claude

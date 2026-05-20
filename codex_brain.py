@@ -62,10 +62,16 @@ async def run_codex(
     cmd.append(pregunta)
 
     t0 = time.monotonic()
+    # Codex debe usar el login de ChatGPT (cuota Plus), NO la OPENAI_API_KEY
+    # que mollo_brain hereda de su EnvironmentFile. Si la heredara, el CLI
+    # revertiría a auth_mode=apikey y cobraría tokens de API. La quitamos
+    # solo para este subprocess; mollo_brain la conserva para sus tiers GPT-4o.
+    codex_env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        env=codex_env,
     )
     try:
         stdout_b, stderr_b = await asyncio.wait_for(
