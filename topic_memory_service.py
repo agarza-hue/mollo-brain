@@ -118,7 +118,11 @@ def get_topic_memories(topic_keys: list[str]) -> str:
             continue
         nombre = TOPICS[key]["nombre"]
         lines = [f"### {nombre}"]
-        lines.append(topic_data["resumen"])
+        # Legacy data shape: resumen puede ser dict {clave: valor}; coerce a string.
+        resumen = topic_data["resumen"]
+        if isinstance(resumen, dict):
+            resumen = "\n".join(f"{k}: {v}" for k, v in resumen.items())
+        lines.append(str(resumen))
         if topic_data.get("hechos_clave"):
             lines.append("Hechos clave:")
             for h in topic_data["hechos_clave"][-5:]:
