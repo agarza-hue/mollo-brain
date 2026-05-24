@@ -17,7 +17,7 @@ import json as _json
 from embeddings import get_embedding
 from qdrant_service import search, tenant_collection, resolve_kb_collection, resolve_mem_collection
 from config import QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION
-from auth import get_optional_user
+from auth import quota_guard, record_request
 from claude_service import chat_with_rag, stream_chat_with_rag, run_agent, stream_agent, analyze_document
 from openai_brain import (
     chat_openai, stream_chat_openai,
@@ -172,16 +172,26 @@ def _save_in_background(
     usage: dict | None = None,
     tenant_slug: str | None = None,
     mem_coll: str | None = None,
+    user_id: str | None = None,
 ):
     def _work():
         try:
+            # Cuenta el request para el paywall (usage_logs)
+            record_request(user_id,
+                           model=(usage or {}).get("model", ""),
+                           complexity=modo,
+                           input_tokens=(usage or {}).get("input_tokens", 0),
+                           output_tokens=(usage or {}).get("output_tokens", 0))
             save_turn(pregunta, respuesta, session_id, vector=query_vector,
                       mem_collection=mem_coll or QDRANT_MEMORY_COLLECTION)
-            tema, insight = extract_learning(pregunta, respuesta)
-            if insight:
-                save_learning(tema, insight)
-                _invalidate_static_cache()
-            update_topics_background(pregunta, respuesta)
+            # Learnings/topics son stores GLOBALES del owner: solo legacy, para no
+            # contaminarlos con conversaciones de usuarios aislados.
+            if (mem_coll or QDRANT_MEMORY_COLLECTION) == QDRANT_MEMORY_COLLECTION:
+                tema, insight = extract_learning(pregunta, respuesta)
+                if insight:
+                    save_learning(tema, insight)
+                    _invalidate_static_cache()
+                update_topics_background(pregunta, respuesta)
             if usage:
                 from topic_memory_service import detect_topics as _dt
                 topics = _dt(pregunta)
@@ -323,7 +333,7 @@ async def ask_mollo(
     req: ChatRequest,
     background_tasks: BackgroundTasks,
     tenant: dict | None = Depends(get_tenant),
-    user: dict | None = Depends(get_optional_user),
+    user: dict | None = Depends(quota_guard),
 ):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
@@ -426,7 +436,8 @@ async def ask_mollo(
 
     _save_in_background(background_tasks, req.pregunta, respuesta,
                         req.session_id, query_vector, modo=modo, usage=usage,
-                        tenant_slug=None, mem_coll=mem_coll)
+                        tenant_slug=None, mem_coll=mem_coll,
+                        user_id=user["id"] if user else None)
 
     # Etiqueta dinámica para agente Groq
     modelo_label = MODELO_LABEL.get(modo, modo)
@@ -454,7 +465,7 @@ async def stream_mollo(
     req: ChatRequest,
     background_tasks: BackgroundTasks,
     tenant: dict | None = Depends(get_tenant),
-    user: dict | None = Depends(get_optional_user),
+    user: dict | None = Depends(quota_guard),
 ):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
@@ -592,6 +603,7 @@ async def stream_mollo(
             req.session_id, query_vector,
             modo=modo, usage=mollo_usage or None,
             tenant_slug=None, mem_coll=mem_coll,
+            user_id=user["id"] if user else None,
         )
 
     return StreamingResponse(generate_mollo(), media_type="text/plain; charset=utf-8")

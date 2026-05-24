@@ -14,7 +14,8 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from db import get_db
+from db import get_db, SessionLocal
+from config import ENFORCE_PLAN_LIMITS, MOLLOIA_PLAN_LIMITS, OWNER_USER_ID
 
 SECRET_KEY = os.getenv("MOLLOAI_JWT_SECRET", "molloai-secret-key-change-in-prod-2026")
 ALGORITHM = "HS256"
@@ -161,3 +162,57 @@ def get_optional_user(
         return None
     user = dict(row._mapping)
     return user if user["is_active"] else None
+
+
+# ── Paywall: límites mensuales por plan (MolloIA) ─────────────────────────────
+def plan_monthly_limit(plan: Optional[str]) -> int:
+    return MOLLOIA_PLAN_LIMITS.get(plan or "free", MOLLOIA_PLAN_LIMITS["free"])
+
+
+def monthly_request_count(db: Session, user_id: str) -> int:
+    """Mensajes del usuario en el mes calendario actual (ventana auto-reseteable)."""
+    row = db.execute(
+        text("SELECT count(*) FROM usage_logs WHERE user_id = :uid "
+             "AND created_at >= date_trunc('month', now())"),
+        {"uid": user_id},
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def quota_guard(user: Optional[dict] = Depends(get_optional_user),
+                db: Session = Depends(get_db)) -> Optional[dict]:
+    """Dependency: enforcea el límite mensual del plan para usuarios MolloIA.
+    Devuelve el user sin cambios (la resolución de colección sigue igual).
+    No-op si el flag está OFF, no hay user (anónimo/tenant), o es owner/admin."""
+    if not ENFORCE_PLAN_LIMITS or not user:
+        return user
+    if str(user.get("id")) == OWNER_USER_ID or user.get("is_admin"):
+        return user
+    limit = plan_monthly_limit(user.get("plan"))
+    if limit >= 999_999:
+        return user
+    used = monthly_request_count(db, user["id"])
+    if used >= limit:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=(f"Límite del plan {user.get('plan', 'free')} alcanzado "
+                    f"({limit} mensajes/mes, usados {used}). "
+                    f"Mejora tu plan para seguir usando MolloIA."),
+        )
+    return user
+
+
+def record_request(user_id: Optional[str], model: str = "", complexity: str = "",
+                   input_tokens: int = 0, output_tokens: int = 0) -> None:
+    """Registra un request en usage_logs (alimenta el contador de cuota).
+    Abre su propia sesión — pensado para background tasks. Silencioso ante error."""
+    if not user_id:
+        return
+    try:
+        db = SessionLocal()
+        try:
+            log_usage(db, user_id, model or "unknown", input_tokens, output_tokens, complexity or "")
+        finally:
+            db.close()
+    except Exception:
+        pass

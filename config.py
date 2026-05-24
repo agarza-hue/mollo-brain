@@ -15,6 +15,15 @@ QDRANT_MEMORY_COLLECTION = os.getenv("QDRANT_MEMORY_COLLECTION", "mollo_memoria"
 # las legacy para preservar sus datos.
 PER_USER_ISOLATION       = os.getenv("PER_USER_ISOLATION", "false").lower() == "true"
 OWNER_USER_ID            = os.getenv("OWNER_USER_ID", "")
+# Paywall MolloIA: enforcement de límite mensual de mensajes por plan. OFF por
+# defecto → sin límites (comportamiento actual). Owner/admin = ilimitado.
+ENFORCE_PLAN_LIMITS      = os.getenv("ENFORCE_PLAN_LIMITS", "false").lower() == "true"
+MOLLOIA_PLAN_LIMITS      = {
+    "free":  int(os.getenv("MOLLOIA_FREE_LIMIT",  "50")),
+    "pro":   int(os.getenv("MOLLOIA_PRO_LIMIT",   "3000")),
+    "team":  int(os.getenv("MOLLOIA_TEAM_LIMIT",  "10000")),
+    "admin": 999_999,
+}
 OLLAMA_HOST       = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:7b")
 EMBED_MODEL       = os.getenv("EMBED_MODEL", "nomic-embed-text")
