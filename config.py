@@ -9,7 +9,14 @@ QDRANT_HOST       = os.getenv("QDRANT_HOST", "localhost")
 QDRANT_PORT       = int(os.getenv("QDRANT_PORT", 6333))
 QDRANT_COLLECTION        = os.getenv("QDRANT_COLLECTION", "mollo_empresa")
 QDRANT_MEMORY_COLLECTION = os.getenv("QDRANT_MEMORY_COLLECTION", "mollo_memoria")
+# Aislamiento de datos por usuario (MolloIA). OFF por defecto → comportamiento
+# idéntico al actual (todos comparten las colecciones legacy de arriba). ON →
+# cada usuario MolloIA tiene sus propias colecciones; el owner sigue mapeado a
+# las legacy para preservar sus datos.
+PER_USER_ISOLATION       = os.getenv("PER_USER_ISOLATION", "false").lower() == "true"
+OWNER_USER_ID            = os.getenv("OWNER_USER_ID", "")
 OLLAMA_HOST       = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen2.5:7b")
 EMBED_MODEL       = os.getenv("EMBED_MODEL", "nomic-embed-text")
 CLAUDE_MODEL      = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-6")
 OPENAI_MODEL_AUX  = os.getenv("OPENAI_MODEL_AUX", "gpt-4o-mini")

@@ -15,8 +15,9 @@ from typing import Optional
 import json as _json
 
 from embeddings import get_embedding
-from qdrant_service import search, tenant_collection
-from config import QDRANT_COLLECTION
+from qdrant_service import search, tenant_collection, resolve_kb_collection, resolve_mem_collection
+from config import QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION
+from auth import get_optional_user
 from claude_service import chat_with_rag, stream_chat_with_rag, run_agent, stream_agent, analyze_document
 from openai_brain import (
     chat_openai, stream_chat_openai,
@@ -26,6 +27,7 @@ from openai_brain import (
 from gemini_brain import chat_gemini, stream_chat_gemini, GEMINI_FLASH_LITE
 from groq_brain import run_agent_groq, stream_agent_groq, chat_groq, stream_chat_groq, LLAMA_70B
 from codex_brain import run_codex, stream_codex
+from ollama_brain import chat_ollama, stream_chat_ollama, OLLAMA_CHAT_MODEL
 from memory_service import save_turn, save_learning, get_semantic_context, get_business_context, get_learnings_context
 from openai_service import extract_learning, classify_complexity, needs_tools
 from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
@@ -67,6 +69,7 @@ MODELO_LABEL = {
     "complejo": "Claude Sonnet 4.6",
     "agente":   f"GPT-4o + tools",
     "codex":    "Codex CLI + filesystem",
+    "local":    f"Ollama {OLLAMA_CHAT_MODEL} (GPU local)",
 }
 
 
@@ -76,7 +79,7 @@ class ChatRequest(BaseModel):
     top_k: int = 5
     session_id: str = "default"
     usar_memoria: bool = True
-    modo: Optional[str] = None  # "ligero"|"simple"|"rapido"|"medio"|"complejo"|"agente"|"codex" | None (auto)
+    modo: Optional[str] = None  # "ligero"|"simple"|"rapido"|"medio"|"complejo"|"agente"|"codex"|"local" | None (auto)
     # "rapido" → Llama 3.3 70B via Groq. 3x más rápido que GPT-4o, ~76% más barato.
     # Sin caching, calidad ligeramente inferior a GPT-4o. Solo opt-in explícito
     # (el auto-clasificador NO lo elige).
@@ -168,10 +171,12 @@ def _save_in_background(
     modo: str = "medio",
     usage: dict | None = None,
     tenant_slug: str | None = None,
+    mem_coll: str | None = None,
 ):
     def _work():
         try:
-            save_turn(pregunta, respuesta, session_id, vector=query_vector)
+            save_turn(pregunta, respuesta, session_id, vector=query_vector,
+                      mem_collection=mem_coll or QDRANT_MEMORY_COLLECTION)
             tema, insight = extract_learning(pregunta, respuesta)
             if insight:
                 save_learning(tema, insight)
@@ -196,9 +201,12 @@ def _save_in_background(
     background_tasks.add_task(_work)
 
 
-def _collect_context(query_vector: list, req: "ChatRequest"):  # noqa: F821
-    memory_context = get_semantic_context(query_vector) if req.usar_memoria else ""
-    if req.usar_memoria:
+def _collect_context(query_vector: list, req: "ChatRequest",  # noqa: F821
+                     mem_coll: str = QDRANT_MEMORY_COLLECTION):
+    memory_context = get_semantic_context(query_vector, mem_collection=mem_coll) if req.usar_memoria else ""
+    # El contexto estático (business/learnings/topic) es del OWNER. Solo se inyecta
+    # en el camino legacy; a usuarios aislados no se les filtra.
+    if req.usar_memoria and mem_coll == QDRANT_MEMORY_COLLECTION:
         business_ctx, learnings_ctx, topic_memory = _get_static_context()
     else:
         business_ctx = learnings_ctx = topic_memory = ""
@@ -228,6 +236,8 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
         return await run_agent_openai(**kwargs, model=GPT_4O)
     if modo == "ligero":
         return chat_gemini(**kwargs, model=GEMINI_FLASH_LITE)
+    if modo == "local":
+        return chat_ollama(**kwargs, model=OLLAMA_CHAT_MODEL)
     if modo == "simple":
         return chat_openai(**kwargs, model=GPT_MINI)
     if modo == "rapido":
@@ -272,6 +282,9 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
     elif modo == "ligero":
         async for chunk in stream_chat_gemini(**kwargs, model=GEMINI_FLASH_LITE):
             yield chunk
+    elif modo == "local":
+        async for chunk in stream_chat_ollama(**kwargs, model=OLLAMA_CHAT_MODEL):
+            yield chunk
     elif modo == "simple":
         if tools_needed:
             async for chunk in stream_agent_openai(**kwargs, model=GPT_MINI):
@@ -310,21 +323,31 @@ async def ask_mollo(
     req: ChatRequest,
     background_tasks: BackgroundTasks,
     tenant: dict | None = Depends(get_tenant),
+    user: dict | None = Depends(get_optional_user),
 ):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
-    query_vector = await get_embedding(req.pregunta)
-    coll         = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
-    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
+    coll         = resolve_kb_collection(tenant, user)
+    mem_coll     = resolve_mem_collection(user)
+    referenced   = _extract_referenced_filenames(req.pregunta)
 
-    # Si el usuario referenció un archivo específico (típico tras upload
-    # desde el chat), trae sus chunks aunque la búsqueda semántica no los
-    # haya rankeado alto — el filename no siempre aparece dentro del
-    # contenido y embedding por sí solo puede no matchear.
-    referenced = _extract_referenced_filenames(req.pregunta)
-    forced_pts = _fetch_chunks_by_filename(referenced, collection=coll) if referenced else []
-    doc_context  = _build_doc_context(forced_pts + list(results))
+    # modo:local + usar_memoria=False → modelo local sin RAG. El modelo chico se
+    # distrae con doc_context inyectado; al pedir explícitamente sin memoria,
+    # omitimos embedding, búsqueda y contexto. (_collect_context ya devuelve ""
+    # en memoria/business/learnings cuando usar_memoria=False.)
+    if req.modo == "local" and not req.usar_memoria and tenant is None:
+        query_vector = None
+        results      = []
+        doc_context  = ""
+    else:
+        query_vector = await get_embedding(req.pregunta)
+        results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
+        # Si el usuario referenció un archivo específico (típico tras upload desde
+        # el chat), trae sus chunks aunque la búsqueda semántica no los haya
+        # rankeado alto — el filename no siempre aparece dentro del contenido.
+        forced_pts   = _fetch_chunks_by_filename(referenced, collection=coll) if referenced else []
+        doc_context  = _build_doc_context(forced_pts + list(results))
 
     # Tenant externo: InsForge recopila respuesta completa sin contexto de Mollo
     if tenant:
@@ -372,7 +395,7 @@ async def ask_mollo(
         }
 
     # Pipeline Mollo (usuario interno)
-    memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
+    memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req, mem_coll)
     modo = req.modo or classify_complexity(req.pregunta)
 
     # Slim para agente: tiene tools para fetchar info, no necesita RAG ni topic_memory
@@ -403,7 +426,7 @@ async def ask_mollo(
 
     _save_in_background(background_tasks, req.pregunta, respuesta,
                         req.session_id, query_vector, modo=modo, usage=usage,
-                        tenant_slug=None)
+                        tenant_slug=None, mem_coll=mem_coll)
 
     # Etiqueta dinámica para agente Groq
     modelo_label = MODELO_LABEL.get(modo, modo)
@@ -431,21 +454,31 @@ async def stream_mollo(
     req: ChatRequest,
     background_tasks: BackgroundTasks,
     tenant: dict | None = Depends(get_tenant),
+    user: dict | None = Depends(get_optional_user),
 ):
     if not req.pregunta.strip():
         raise HTTPException(400, "La pregunta no puede estar vacía")
 
-    query_vector = await get_embedding(req.pregunta)
-    coll         = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
-    results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
+    coll         = resolve_kb_collection(tenant, user)
+    mem_coll     = resolve_mem_collection(user)
+    referenced   = _extract_referenced_filenames(req.pregunta)
 
-    # Si el usuario referenció un archivo específico (típico tras upload
-    # desde el chat), trae sus chunks aunque la búsqueda semántica no los
-    # haya rankeado alto — el filename no siempre aparece dentro del
-    # contenido y embedding por sí solo puede no matchear.
-    referenced = _extract_referenced_filenames(req.pregunta)
-    forced_pts = _fetch_chunks_by_filename(referenced, collection=coll) if referenced else []
-    doc_context  = _build_doc_context(forced_pts + list(results))
+    # modo:local + usar_memoria=False → modelo local sin RAG. El modelo chico se
+    # distrae con doc_context inyectado; al pedir explícitamente sin memoria,
+    # omitimos embedding, búsqueda y contexto. (_collect_context ya devuelve ""
+    # en memoria/business/learnings cuando usar_memoria=False.)
+    if req.modo == "local" and not req.usar_memoria and tenant is None:
+        query_vector = None
+        results      = []
+        doc_context  = ""
+    else:
+        query_vector = await get_embedding(req.pregunta)
+        results      = search(query_vector, top_k=req.top_k, categoria=req.categoria, collection=coll)
+        # Si el usuario referenció un archivo específico (típico tras upload desde
+        # el chat), trae sus chunks aunque la búsqueda semántica no los haya
+        # rankeado alto — el filename no siempre aparece dentro del contenido.
+        forced_pts   = _fetch_chunks_by_filename(referenced, collection=coll) if referenced else []
+        doc_context  = _build_doc_context(forced_pts + list(results))
 
     # ── Tenant externo: InsForge orquesta directamente (sin contexto de Mollo) ──
     if tenant:
@@ -512,7 +545,7 @@ async def stream_mollo(
         return StreamingResponse(generate_tenant(), media_type="text/plain; charset=utf-8")
 
     # ── Pipeline Mollo (usuario interno — con contexto completo) ─────────────
-    memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req)
+    memory_context, business_ctx, learnings_ctx, topic_memory = _collect_context(query_vector, req, mem_coll)
     modo = req.modo or classify_complexity(req.pregunta)
 
     # Slim para agente: tiene tools para fetchar info — no necesita RAG ni topic_memory
@@ -558,7 +591,7 @@ async def stream_mollo(
             background_tasks, req.pregunta, "".join(mollo_collected),
             req.session_id, query_vector,
             modo=modo, usage=mollo_usage or None,
-            tenant_slug=None,
+            tenant_slug=None, mem_coll=mem_coll,
         )
 
     return StreamingResponse(generate_mollo(), media_type="text/plain; charset=utf-8")

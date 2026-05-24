@@ -2,7 +2,7 @@
 import json, uuid
 from datetime import datetime
 from pathlib import Path
-from config import MEMORY_FILE
+from config import MEMORY_FILE, QDRANT_MEMORY_COLLECTION
 
 
 def _load() -> dict:
@@ -22,23 +22,26 @@ def save_turn(
     mollo_response: str,
     session_id: str = "default",
     vector: list[float] | None = None,
+    mem_collection: str = QDRANT_MEMORY_COLLECTION,
 ):
     from openai_service import summarize_response
 
     summary = summarize_response(mollo_response)
+    fecha   = datetime.now().isoformat()
 
-    data = _load()
-    entry = {
-        "session_id": session_id,
-        "fecha": datetime.now().isoformat(),
-        "usuario": user_msg,
-        "mollo_summary": summary,
-    }
-    data["conversaciones"].append(entry)
-    # Qdrant tiene el historial semántico completo — aquí solo guardamos
-    # los últimos 20 como fallback cuando Qdrant no devuelve resultados.
-    data["conversaciones"] = data["conversaciones"][-20:]
-    _save(data)
+    # El JSON (MEMORY_FILE) es un store GLOBAL (fallback de últimas 20 convos).
+    # Solo se escribe para el owner/legacy; los usuarios aislados viven solo en
+    # su colección Qdrant per-usuario (sin tocar el JSON compartido).
+    if mem_collection == QDRANT_MEMORY_COLLECTION:
+        data = _load()
+        data["conversaciones"].append({
+            "session_id": session_id,
+            "fecha": fecha,
+            "usuario": user_msg,
+            "mollo_summary": summary,
+        })
+        data["conversaciones"] = data["conversaciones"][-20:]
+        _save(data)
 
     # Guardar respuesta completa en Qdrant para recuperación semántica
     if vector:
@@ -47,11 +50,12 @@ def save_turn(
             upsert_memory_vector(
                 record_id=str(uuid.uuid4()),
                 vector=vector,
+                collection=mem_collection,
                 payload={
                     "usuario": user_msg,
                     "mollo": mollo_response,
                     "mollo_summary": summary,
-                    "fecha": entry["fecha"],
+                    "fecha": fecha,
                     "session_id": session_id,
                 },
             )
@@ -105,13 +109,17 @@ def get_business_context() -> str:
     return "\n".join(lines)
 
 
-def get_semantic_context(query_vector: list[float], top_k: int = 5) -> str:
+def get_semantic_context(query_vector: list[float], top_k: int = 5,
+                         mem_collection: str = QDRANT_MEMORY_COLLECTION) -> str:
+    # Legacy = owner/anónimo. Para usuarios aislados NO se mezcla ni el historial
+    # global de ChatGPT ni el fallback del JSON global (ambos son del owner).
+    is_legacy = mem_collection == QDRANT_MEMORY_COLLECTION
     try:
         from qdrant_service import search_memory, search_chatgpt
         parts = []
 
-        # Conversaciones previas con Mollo
-        mollo_results = search_memory(query_vector, top_k=top_k)
+        # Conversaciones previas (colección per-usuario o legacy según mem_collection)
+        mollo_results = search_memory(query_vector, top_k=top_k, collection=mem_collection)
         if mollo_results:
             lines = []
             for r in mollo_results:
@@ -120,22 +128,23 @@ def get_semantic_context(query_vector: list[float], top_k: int = 5) -> str:
                 lines.append(f"Mollo: {summary}")
             parts.append("--- Conversaciones con Mollo ---\n" + "\n".join(lines))
 
-        # Historial de ChatGPT (si está importado)
-        gpt_results = search_chatgpt(query_vector, top_k=3)
-        if gpt_results:
-            lines = []
-            for r in gpt_results:
-                title = r.payload.get("title", "")
-                fecha = r.payload.get("fecha", "")
-                text  = r.payload.get("text", "")[:600]
-                lines.append(f"[ChatGPT — {title} ({fecha})]\n{text}")
-            parts.append("--- Historial de ChatGPT ---\n" + "\n\n".join(lines))
+        # Historial de ChatGPT (global del owner) — solo legacy
+        if is_legacy:
+            gpt_results = search_chatgpt(query_vector, top_k=3)
+            if gpt_results:
+                lines = []
+                for r in gpt_results:
+                    title = r.payload.get("title", "")
+                    fecha = r.payload.get("fecha", "")
+                    text  = r.payload.get("text", "")[:600]
+                    lines.append(f"[ChatGPT — {title} ({fecha})]\n{text}")
+                parts.append("--- Historial de ChatGPT ---\n" + "\n\n".join(lines))
 
         if parts:
             return "\n\n".join(parts)
-        return get_recent_context(4)
+        return get_recent_context(4) if is_legacy else ""
     except Exception:
-        return get_recent_context(4)
+        return get_recent_context(4) if is_legacy else ""
 
 
 def get_learnings_context(max_items: int = 20) -> str:

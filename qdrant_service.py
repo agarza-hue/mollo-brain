@@ -5,7 +5,10 @@ from qdrant_client.models import (
     Distance, VectorParams, PointStruct, Filter,
     FieldCondition, MatchValue
 )
-from config import QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION
+from config import (
+    QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION,
+    PER_USER_ISOLATION, OWNER_USER_ID,
+)
 from chatgpt_importer import CHATGPT_COLLECTION
 
 client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
@@ -36,16 +39,20 @@ def ensure_chatgpt_collection():
 
 # ── Memoria semántica ─────────────────────────────────────────────────────────
 
-def upsert_memory_vector(record_id: str, vector: list[float], payload: dict):
+def upsert_memory_vector(record_id: str, vector: list[float], payload: dict,
+                         collection: str = QDRANT_MEMORY_COLLECTION):
+    _ensure(collection)
     client.upsert(
-        collection_name=QDRANT_MEMORY_COLLECTION,
+        collection_name=collection,
         points=[PointStruct(id=record_id, vector=vector, payload=payload)],
     )
 
 
-def search_memory(query_vector: list[float], top_k: int = 6) -> list:
+def search_memory(query_vector: list[float], top_k: int = 6,
+                  collection: str = QDRANT_MEMORY_COLLECTION) -> list:
+    _ensure(collection)
     results = client.query_points(
-        collection_name=QDRANT_MEMORY_COLLECTION,
+        collection_name=collection,
         query=query_vector,
         limit=top_k,
         with_payload=True,
@@ -55,6 +62,39 @@ def search_memory(query_vector: list[float], top_k: int = 6) -> list:
 
 def tenant_collection(slug: str) -> str:
     return f"sinergy_{slug}"
+
+
+# ── Aislamiento por usuario (MolloIA) ─────────────────────────────────────────
+def user_collection(user_id: str) -> str:
+    return f"mollo_u_{user_id}"
+
+
+def user_memory_collection(user_id: str) -> str:
+    return f"mollo_mem_u_{user_id}"
+
+
+def _is_isolated_user(user: Optional[dict]) -> bool:
+    """True si el request es de un usuario MolloIA aislado (flag ON y no es el owner)."""
+    return bool(
+        PER_USER_ISOLATION and user and user.get("id")
+        and str(user["id"]) != OWNER_USER_ID
+    )
+
+
+def resolve_kb_collection(tenant: Optional[dict], user: Optional[dict]) -> str:
+    """Colección de conocimiento: tenant SinergyOS → sinergy_*; usuario MolloIA
+    aislado → mollo_u_*; owner/anónimo (o flag OFF) → legacy global."""
+    if tenant:
+        return tenant_collection(tenant["slug"])
+    if _is_isolated_user(user):
+        return user_collection(user["id"])
+    return QDRANT_COLLECTION
+
+
+def resolve_mem_collection(user: Optional[dict]) -> str:
+    if _is_isolated_user(user):
+        return user_memory_collection(user["id"])
+    return QDRANT_MEMORY_COLLECTION
 
 
 def upsert_vectors(records: list[dict], embeddings: list[list[float]], collection: str = QDRANT_COLLECTION):

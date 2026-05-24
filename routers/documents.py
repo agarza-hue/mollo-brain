@@ -7,10 +7,11 @@ from pydantic import BaseModel
 import os, tempfile
 
 from document_service import save_document, process_document, list_documents, delete_document, extract_text
-from qdrant_service import upsert_vectors, delete_by_source, collection_stats, tenant_collection
+from qdrant_service import upsert_vectors, delete_by_source, collection_stats, tenant_collection, resolve_kb_collection
 from embeddings import get_embeddings_batch
 from config import CATEGORIAS, QDRANT_COLLECTION
 from insforge import get_tenant
+from auth import get_optional_user
 
 router = APIRouter(prefix="/docs", tags=["Documentos"])
 
@@ -20,6 +21,7 @@ async def upload_document(
     file: UploadFile = File(...),
     categoria: str = Form("general"),
     tenant: dict | None = Depends(get_tenant),
+    user: dict | None = Depends(get_optional_user),
 ):
     if categoria not in CATEGORIAS:
         raise HTTPException(400, f"Categoría inválida. Opciones: {CATEGORIAS}")
@@ -41,7 +43,7 @@ async def upload_document(
     embeddings = await get_embeddings_batch(texts)
 
     # Guardar en Qdrant (colección aislada por tenant)
-    coll = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+    coll = resolve_kb_collection(tenant, user)
     upsert_vectors(records, embeddings, collection=coll)
 
     return {
@@ -61,7 +63,7 @@ class UploadTextRequest(BaseModel):
 
 
 @router.post("/upload-text")
-async def upload_text_document(req: UploadTextRequest, tenant: dict | None = Depends(get_tenant)):
+async def upload_text_document(req: UploadTextRequest, tenant: dict | None = Depends(get_tenant), user: dict | None = Depends(get_optional_user)):
     """Indexa texto plano directamente — usado por n8n sync_docs."""
     if req.categoria not in CATEGORIAS:
         raise HTTPException(400, f"Categoría inválida. Opciones: {CATEGORIAS}")
@@ -77,7 +79,7 @@ async def upload_text_document(req: UploadTextRequest, tenant: dict | None = Dep
 
     texts = [r["text"] for r in records]
     embeddings = await get_embeddings_batch(texts)
-    coll = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+    coll = resolve_kb_collection(tenant, user)
     upsert_vectors(records, embeddings, collection=coll)
 
     return {
@@ -95,10 +97,10 @@ def get_documents():
 
 
 @router.delete("/{categoria}/{filename}")
-def remove_document(categoria: str, filename: str, tenant: dict | None = Depends(get_tenant)):
+def remove_document(categoria: str, filename: str, tenant: dict | None = Depends(get_tenant), user: dict | None = Depends(get_optional_user)):
     deleted_file = delete_document(filename, categoria)
     if deleted_file:
-        coll = tenant_collection(tenant["slug"]) if tenant else QDRANT_COLLECTION
+        coll = resolve_kb_collection(tenant, user)
         delete_by_source(filename, collection=coll)
         return {"status": "ok", "eliminado": filename}
     raise HTTPException(404, "Documento no encontrado")
