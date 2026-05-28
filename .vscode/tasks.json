@@ -1,0 +1,47 @@
+{
+  // Mollo AI-OS routing — installed by Claude on 2026-05-27.
+  // Routes summarize / explain / format / commit-msg through the local router so
+  // those calls never touch Claude quota. Requires VS Code Remote-SSH to this VPS
+  // (router binds 127.0.0.1:8787; `mollo-route` is at /usr/local/bin/mollo-route).
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Mollo: route selection",
+      "type": "shell",
+      "command": "echo \"${selectedText}\" | mollo-route \"${input:molloPrompt}\"",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Mollo: summarize file",
+      "type": "shell",
+      "command": "cat \"${file}\" | mollo-route \"Summarize this file: key responsibilities, public API, and any TODOs.\"",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Mollo: explain selection",
+      "type": "shell",
+      "command": "echo \"${selectedText}\" | mollo-route \"Explain what this code does, briefly.\"",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Mollo: commit message",
+      "type": "shell",
+      "command": "git -C \"${workspaceFolder}\" diff --staged | mollo-route \"Generate a conventional commits message for these staged changes. Return only the message line.\"",
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Mollo: detect resources",
+      "type": "shell",
+      "command": "/opt/mollo-aios/.venv/bin/python /opt/mollo-aios/bin/detect.py",
+      "problemMatcher": []
+    }
+  ],
+  "inputs": [
+    { "id": "molloPrompt", "type": "promptString",
+      "description": "Instruction for the routed model" }
+  ]
+}
