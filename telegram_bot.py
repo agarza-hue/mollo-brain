@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import tempfile
 from pathlib import Path
 import httpx
 from telegram import Update
@@ -64,7 +65,9 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/memory — resumen de memoria\n"
         "/temas — memoria por temas especializados\n"
         "/briefing — briefing ejecutivo del día\n"
-        "/agente <consulta> — forzar modo agente con herramientas",
+        "/agente <consulta> — forzar modo agente con herramientas\n\n"
+        "📸 *NanoBanana Vision:*\n"
+        "Envíame una foto o video y lo analizo con NanoBanana Pro — calidad, composición, iluminación y más.",
         parse_mode="Markdown",
     )
 
@@ -177,6 +180,149 @@ async def cmd_agente(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.edit_text(f"Error en agente: {e}")
 
 
+async def _analyze_telegram_file(
+    file_id: str,
+    filename: str,
+    suffix: str,
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    caption: str = "",
+) -> None:
+    """Descarga un archivo de Telegram y lo manda a /vision/analyze."""
+    chat_id = str(update.effective_chat.id)
+    await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+    status_msg = await update.message.reply_text("_🔍 Analizando con NanoBanana…_", parse_mode="Markdown")
+
+    try:
+        tg_file = await context.bot.get_file(file_id)
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+            tmp_path = tmp.name
+        await tg_file.download_to_drive(tmp_path)
+
+        async with httpx.AsyncClient(timeout=120) as client:
+            with open(tmp_path, "rb") as fh:
+                resp = await client.post(
+                    f"{BRAIN_URL}/vision/analyze",
+                    files={"file": (filename, fh, _mime_for(suffix))},
+                    data={"model": "models/nano-banana-pro-preview"},
+                )
+            resp.raise_for_status()
+            data = resp.json()
+
+        texto = _format_vision_result(data, caption)
+        try:
+            await status_msg.edit_text(texto, parse_mode="Markdown")
+        except BadRequest:
+            await status_msg.delete()
+            await update.message.reply_text(texto, parse_mode="Markdown")
+
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Error en análisis visual: {e}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+
+def _mime_for(suffix: str) -> str:
+    import mimetypes
+    return mimetypes.guess_type(f"f{suffix}")[0] or "application/octet-stream"
+
+
+def _format_vision_result(data: dict, caption: str = "") -> str:
+    if "error" in data and "puntuacion_global" not in data:
+        return f"⚠️ Error: {data['error']}"
+
+    score  = data.get("puntuacion_global", "?")
+    desc   = data.get("descripcion", "")
+    dims   = data.get("dimensiones", {})
+    tips   = data.get("sugerencias", [])
+    tags   = data.get("etiquetas", [])
+    modelo = data.get("modelo", "")
+
+    stars = "⭐" * round(float(score)) if score != "?" else ""
+    lines = [f"📸 *Análisis NanoBanana* — {score}/10 {stars}"]
+
+    if desc:
+        lines.append(f"\n_{desc}_")
+
+    if dims:
+        lines.append("\n*Dimensiones:*")
+        emojis = {
+            "composicion": "🖼",
+            "nitidez":     "🔍",
+            "iluminacion": "💡",
+            "colores":     "🎨",
+            "encuadre":    "📐",
+            "movimiento":  "🎬",
+            "audio":       "🔊",
+        }
+        for key, val in dims.items():
+            ico = emojis.get(key, "•")
+            p   = val.get("puntuacion", "?")
+            c   = val.get("comentario", "")
+            lines.append(f"{ico} *{key.capitalize()}* {p}/10 — {c}")
+
+    if tips:
+        lines.append("\n*Sugerencias:*")
+        for t in tips[:2]:
+            lines.append(f"  · {t}")
+
+    if tags:
+        lines.append("\n" + " ".join(f"`{t}`" for t in tags[:5]))
+
+    if modelo:
+        lines.append(f"\n_vía {modelo.split('/')[-1]}_")
+
+    return "\n".join(lines)
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo   = update.message.photo[-1]  # mayor resolución
+    caption = update.message.caption or ""
+    await _analyze_telegram_file(
+        file_id=photo.file_id,
+        filename="photo.jpg",
+        suffix=".jpg",
+        update=update,
+        context=context,
+        caption=caption,
+    )
+
+
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    video   = update.message.video
+    suffix  = Path(video.file_name or "video.mp4").suffix or ".mp4"
+    caption = update.message.caption or ""
+    await _analyze_telegram_file(
+        file_id=video.file_id,
+        filename=video.file_name or f"video{suffix}",
+        suffix=suffix,
+        update=update,
+        context=context,
+        caption=caption,
+    )
+
+
+async def handle_document_media(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Fotos/videos enviados como archivo (sin compresión de Telegram)."""
+    doc    = update.message.document
+    suffix = Path(doc.file_name or "").suffix.lower()
+    from gemini_vision import IMAGE_EXTS, VIDEO_EXTS
+    if suffix not in IMAGE_EXTS | VIDEO_EXTS:
+        return  # no es media — ignorar
+    caption = update.message.caption or ""
+    await _analyze_telegram_file(
+        file_id=doc.file_id,
+        filename=doc.file_name or f"file{suffix}",
+        suffix=suffix,
+        update=update,
+        context=context,
+        caption=caption,
+    )
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     pregunta   = update.message.text.strip()
     chat_id    = str(update.effective_chat.id)
@@ -213,6 +359,9 @@ def main():
     app.add_handler(CommandHandler("briefing", cmd_briefing))
     app.add_handler(CommandHandler("temas",    cmd_temas))
     app.add_handler(CommandHandler("agente",   cmd_agente))
+    app.add_handler(MessageHandler(filters.PHOTO,   handle_photo))
+    app.add_handler(MessageHandler(filters.VIDEO,   handle_video))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document_media))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     log.info("Mollo Bot arrancado — esperando mensajes de Telegram")

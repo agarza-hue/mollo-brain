@@ -1,6 +1,6 @@
 import asyncio
 import httpx
-from config import OLLAMA_HOST, EMBED_MODEL
+from config import EMBED_HOST, EMBED_MODEL
 
 
 async def get_embedding(text: str) -> list[float]:
@@ -16,7 +16,7 @@ async def get_embedding(text: str) -> list[float]:
     truncated = text[:4000]
     async with httpx.AsyncClient(timeout=60) as client:
         r = await client.post(
-            f"{OLLAMA_HOST}/api/embeddings",
+            f"{EMBED_HOST}/api/embeddings",
             json={"model": EMBED_MODEL, "prompt": truncated}
         )
         r.raise_for_status()

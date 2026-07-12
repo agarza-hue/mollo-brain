@@ -483,6 +483,103 @@ async def _ask_brain_stream(pregunta: str, session_id: str, status_msg, modo: st
     return full
 
 
+# ── NanoBanana Vision ────────────────────────────────────────────────────────
+
+_IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp"}
+_VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".3gp"}
+
+
+def _vision_score_text(data: dict) -> str:
+    if "error" in data and "puntuacion_global" not in data:
+        return f"⚠️ Error: {data['error']}"
+
+    score = data.get("puntuacion_global", "?")
+    desc  = data.get("descripcion", "")
+    dims  = data.get("dimensiones", {})
+    tips  = data.get("sugerencias", [])
+    tags  = data.get("etiquetas", [])
+
+    try:
+        stars = "⭐" * round(float(score))
+    except Exception:
+        stars = ""
+
+    lines = [f"📸 *NanoBanana Vision* — {score}/10 {stars}"]
+    if desc:
+        lines.append(f"\n_{desc}_")
+    if dims:
+        lines.append("\n*Dimensiones:*")
+        emojis = {
+            "composicion": "🖼", "nitidez": "🔍", "iluminacion": "💡",
+            "colores": "🎨", "encuadre": "📐", "movimiento": "🎬", "audio": "🔊",
+        }
+        for key, val in dims.items():
+            ico = emojis.get(key, "•")
+            p   = val.get("puntuacion", "?")
+            c   = val.get("comentario", "")
+            lines.append(f"{ico} *{key.capitalize()}* {p}/10 — {c}")
+    if tips:
+        lines.append("\n*Sugerencias:*")
+        for t in tips[:2]:
+            lines.append(f"  · {t}")
+    if tags:
+        lines.append("\n" + " ".join(f"`{t}`" for t in tags[:5]))
+    return "\n".join(lines)
+
+
+async def _vision_analyze_file(file_obj, filename: str, update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import mimetypes
+    from telegram.constants import ChatAction as _CA
+    from telegram.error import BadRequest as _BR
+
+    suffix  = Path(filename).suffix.lower() or ".jpg"
+    chat_id = str(update.effective_chat.id)
+
+    await context.bot.send_chat_action(chat_id=chat_id, action=_CA.TYPING)
+    status_msg = await update.message.reply_text("_🔍 Analizando con NanoBanana…_", parse_mode="Markdown")
+
+    dest = TEMP_DIR / filename
+    try:
+        await file_obj.download_to_drive(str(dest))
+        mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+
+        with open(dest, "rb") as fh:
+            resp = requests.post(
+                f"{MOLLO_BRAIN_URL}/vision/analyze",
+                files={"file": (filename, fh, mime)},
+                data={"model": "models/nano-banana-pro-preview"},
+                timeout=120,
+            )
+        resp.raise_for_status()
+        texto = _vision_score_text(resp.json())
+        try:
+            await status_msg.edit_text(texto, parse_mode="Markdown")
+        except _BR:
+            await status_msg.delete()
+            await update.message.reply_text(texto, parse_mode="Markdown")
+    except Exception as e:
+        await status_msg.edit_text(f"⚠️ Error en análisis visual: {e}")
+    finally:
+        try:
+            dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    photo    = update.message.photo[-1]
+    file_obj = await context.bot.get_file(photo.file_id)
+    await _vision_analyze_file(file_obj, f"photo_{photo.file_unique_id}.jpg", update, context)
+
+
+async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    video    = update.message.video
+    suffix   = Path(video.file_name or "video.mp4").suffix or ".mp4"
+    filename = video.file_name or f"video_{video.file_unique_id}{suffix}"
+    file_obj = await context.bot.get_file(video.file_id)
+    await _vision_analyze_file(file_obj, filename, update, context)
+
+
 # ── handlers telegram ─────────────────────────────────────────────────────────
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -513,7 +610,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "  /mollo <texto>   → modelo local Ollama\n\n"
         "📊 COSTOS Y ROUTING:\n"
         "  /stats           → costos y ahorro del auto-routing\n"
-        "  /modo <nivel>    → fija modelo (simple/medio/complejo/agente/rapido/auto)"
+        "  /modo <nivel>    → fija modelo (simple/medio/complejo/agente/rapido/auto)\n\n"
+        "📸 VISIÓN (NanoBanana):\n"
+        "  Envía una foto o video → análisis de calidad con NanoBanana Pro\n"
+        "  Composición, nitidez, iluminación, colores y sugerencias de mejora"
     )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -794,7 +894,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
-    # Documentos enviados al chat
+    # NanoBanana Vision — fotos y videos
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.VIDEO, handle_video))
+    # Documentos enviados al chat (PDFs, Excels y media sin comprimir)
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     # Selección de categoría via botones inline
     app.add_handler(CallbackQueryHandler(handle_callback_categoria, pattern=r"^cat\|"))

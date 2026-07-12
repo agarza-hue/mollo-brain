@@ -140,9 +140,9 @@ def parse_conversations(path: str) -> list[dict]:
 async def _ensure_chatgpt_collection():
     from qdrant_client import QdrantClient
     from qdrant_client.models import VectorParams, Distance
-    from config import QDRANT_HOST, QDRANT_PORT
+    from config import QDRANT_HOST, QDRANT_PORT, QDRANT_API_KEY
 
-    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, api_key=QDRANT_API_KEY or None)
     cols = [c.name for c in client.get_collections().collections]
     if CHATGPT_COLLECTION not in cols:
         client.create_collection(
