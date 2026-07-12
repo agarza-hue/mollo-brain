@@ -15,6 +15,7 @@ from routers import documents, chat, memory, vps, tasks, costs, limits, tenants
 from routers import auth_router, convs_router, workspaces, events
 from routers import billing, molloia_billing, claude_ai_usage, graph
 from routers import pai
+from routers import vision
 
 
 @asynccontextmanager
@@ -33,9 +34,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+import os as _os
+_EXTRA_ORIGINS = [o.strip() for o in _os.environ.get("CORS_EXTRA_ORIGINS", "").split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # M-14: orígenes explícitos — Tailscale VPS + WSL + localhost (cualquier puerto)
+    allow_origins=_EXTRA_ORIGINS,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1|100\.100\.86\.65|100\.76\.21\.73)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,6 +63,7 @@ app.include_router(molloia_billing.router)
 app.include_router(claude_ai_usage.router)
 app.include_router(graph.router)
 app.include_router(pai.router)
+app.include_router(vision.router)
 
 
 @app.get("/")
