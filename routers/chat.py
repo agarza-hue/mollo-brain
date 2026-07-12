@@ -33,6 +33,7 @@ from openai_service import extract_learning, classify_complexity, needs_tools
 from topic_memory_service import detect_topics, get_topic_memories, update_topics_background
 import cost_service
 from insforge import get_tenant, increment_usage, orchestrate_tenant
+from code_rag_service import fetch_code_context
 
 # Cache de contexto estático — se invalida cada 5 minutos.
 # Garantiza que el bloque cacheado de Anthropic llegue idéntico request tras request.
@@ -364,6 +365,12 @@ async def ask_mollo(
         from insforge import _classify, _MODELO_LABEL
         import anthropic as _ac, openai as _oc
 
+        # F-3: enriquecer con código RAG del tenant (falla silenciosamente)
+        code_ctx = fetch_code_context(req.pregunta, tenant["slug"])
+        if code_ctx:
+            doc_context = (doc_context + "\n\n--- CÓDIGO RELEVANTE ---\n\n" + code_ctx
+                           if doc_context else code_ctx)
+
         modo   = req.modo or _classify(req.pregunta)
         system = tenant.get("system_prompt") or (
             "Eres un asistente especializado en estrategia y negocios. "
@@ -427,6 +434,15 @@ async def ask_mollo(
     if modo == "codex":
         doc_context = memory_context = business_ctx = learnings_ctx = topic_memory = ""
 
+    # R3 — caché semántica (inerte salvo ANSWER_CACHE_ENABLED=1)
+    import answer_cache
+    _cached, _cscore = answer_cache.lookup(query_vector, modo, tenant_slug=None)
+    if _cached is not None:
+        return {"respuesta": _cached, "modo": modo,
+                "modelo": MODELO_LABEL.get(modo, modo) + " (caché)",
+                "cache_hit": True, "cache_score": round(_cscore, 3),
+                "fuentes_consultadas": 0, "fuentes": []}
+
     respuesta, usage = await _respond(
         modo, req.pregunta, doc_context,
         memory_context, business_ctx, learnings_ctx, topic_memory,
@@ -438,6 +454,8 @@ async def ask_mollo(
                         req.session_id, query_vector, modo=modo, usage=usage,
                         tenant_slug=None, mem_coll=mem_coll,
                         user_id=user["id"] if user else None)
+    background_tasks.add_task(answer_cache.store, query_vector, req.pregunta,
+                              respuesta, modo, None)
 
     # Etiqueta dinámica para agente Groq
     modelo_label = MODELO_LABEL.get(modo, modo)
@@ -493,6 +511,12 @@ async def stream_mollo(
 
     # ── Tenant externo: InsForge orquesta directamente (sin contexto de Mollo) ──
     if tenant:
+        # F-3: enriquecer con código RAG del tenant (falla silenciosamente)
+        code_ctx = fetch_code_context(req.pregunta, tenant["slug"])
+        if code_ctx:
+            doc_context = (doc_context + "\n\n--- CÓDIGO RELEVANTE ---\n\n" + code_ctx
+                           if doc_context else code_ctx)
+
         collected: list[str] = []
         stream_usage: dict = {}
         # Captura el modo desde el header \x02{modo}:{label}\n que emite
@@ -578,10 +602,17 @@ async def stream_mollo(
     mollo_collected: list[str] = []
     mollo_usage: dict = {}
 
+    import answer_cache
+    _cached, _cscore = answer_cache.lookup(query_vector, modo, tenant_slug=None)
+
     async def generate_mollo():
         modelo_label = MODELO_LABEL.get(modo, modo)
         if modo == "agente" and (req.agente_provider or "openai") == "groq":
             modelo_label = "Llama 3.3 70B + tools"
+        if _cached is not None:
+            yield f"\x02{modo}:{modelo_label} (caché)\n"
+            yield _cached
+            return
         yield f"\x02{modo}:{modelo_label}\n"
         async for chunk in _stream(
             modo, req.pregunta, doc_context,
@@ -598,6 +629,8 @@ async def stream_mollo(
             mollo_collected.append(chunk)
             yield chunk
 
+        background_tasks.add_task(answer_cache.store, query_vector, req.pregunta,
+                                  "".join(mollo_collected), modo, None)
         _save_in_background(
             background_tasks, req.pregunta, "".join(mollo_collected),
             req.session_id, query_vector,

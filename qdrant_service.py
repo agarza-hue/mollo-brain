@@ -6,12 +6,13 @@ from qdrant_client.models import (
     FieldCondition, MatchValue
 )
 from config import (
-    QDRANT_HOST, QDRANT_PORT, QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION,
+    QDRANT_HOST, QDRANT_PORT, QDRANT_API_KEY, QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION,
     PER_USER_ISOLATION, OWNER_USER_ID,
 )
 from chatgpt_importer import CHATGPT_COLLECTION
 
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, api_key=QDRANT_API_KEY or None,
+                      https=False)
 
 VECTOR_SIZE = 768  # nomic-embed-text
 
