@@ -17,7 +17,9 @@ OpenAI vinculada a Codex, no a Mollo.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import os
+import tempfile
 import time
 
 DEFAULT_MODEL = os.getenv("CODEX_MODEL")  # None = usa el default de codex CLI
@@ -125,3 +127,90 @@ async def stream_codex(
         sandbox=sandbox, timeout=timeout,
     )
     yield text
+
+
+DEFAULT_CHAT_TIMEOUT_SECS = int(os.getenv("CODEX_CHAT_TIMEOUT_SECS", "90"))
+DEFAULT_CHAT_WORKDIR = os.getenv("CODEX_CHAT_WORKDIR", "/root/mollo_brain")
+
+
+def _flatten_for_codex(messages: list[dict]) -> str:
+    """Igual que _flatten_for_codex del router mollo-aios: Codex es un CLI
+    agente, no un endpoint de chat — serializa los mensajes en un solo prompt."""
+    parts = []
+    for m in messages:
+        role = m.get("role", "user").upper()
+        content = m.get("content") or ""
+        parts.append(f"[{role}]\n{content}")
+    return "\n\n".join(parts)
+
+
+async def stream_chat_codex(
+    pregunta: str,
+    doc_context: str = "",
+    memory_context: str = "",
+    business_context: str = "",
+    learnings_context: str = "",
+    topic_memory: str = "",
+    model: str | None = None,
+    system_prompt: str | None = None,
+):
+    """Chat conversacional vía Codex CLI (cuota ChatGPT Plus del usuario, no la
+    OPENAI_API_KEY de mollo_brain — ver el env-strip en run_codex). A
+    diferencia de run_codex/stream_codex (agente workspace-write para tareas
+    sobre un repo real), esto corre en sandbox read-only: no debe poder tocar
+    el filesystem por un mensaje de chat cualquiera del PWA/Telegram.
+    Reusa el mismo armado de contexto (business/learnings/memoria/docs) que
+    los demás tiers para no perder la personalidad/conocimiento de Mollo.
+    """
+    from openai_brain import _build_messages
+
+    messages = _build_messages(
+        pregunta, doc_context, memory_context,
+        business_context, learnings_context, topic_memory, system_prompt,
+    )
+    prompt = _flatten_for_codex(messages)
+
+    with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False) as tf:
+        out_path = tf.name
+    try:
+        cmd = ["codex", "exec", "--ephemeral", "--skip-git-repo-check",
+               "-s", "read-only", "--color", "never",
+               "-C", DEFAULT_CHAT_WORKDIR,
+               "--output-last-message", out_path]
+        if model:
+            cmd.extend(["-m", model])
+        cmd.append(prompt)
+
+        codex_env = {k: v for k, v in os.environ.items() if k != "OPENAI_API_KEY"}
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=codex_env,
+        )
+        try:
+            _, stderr_b = await asyncio.wait_for(
+                proc.communicate(), timeout=DEFAULT_CHAT_TIMEOUT_SECS,
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(
+                f"stream_chat_codex: timeout tras {DEFAULT_CHAT_TIMEOUT_SECS}s")
+
+        if proc.returncode != 0:
+            stderr = stderr_b.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(f"stream_chat_codex: exit {proc.returncode} — {stderr[:800] or '(sin stderr)'}")
+
+        with open(out_path, "r", encoding="utf-8", errors="replace") as f:
+            text = f.read().strip()
+    finally:
+        try:
+            os.unlink(out_path)
+        except OSError:
+            pass
+
+    if text:
+        yield text
+    model_label = f"codex/{model or DEFAULT_MODEL or 'default'}"
+    yield f"\x03{_json.dumps({'input_tokens': 0, 'output_tokens': 0, 'cache_read_tokens': 0, 'model': model_label})}"

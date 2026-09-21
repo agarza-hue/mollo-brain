@@ -3,12 +3,19 @@ Cerebro OpenAI de Mollo — GPT-4o-mini para queries simples, GPT-4o para medias
 Misma personalidad y herramientas que Claude, pero mucho más barato.
 """
 from openai import OpenAI
-from config import OPENAI_API_KEY
+from config import OPENAI_API_KEY, MOLLO_AIOS_URL, MOLLO_AIOS_KEY
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 GPT_MINI = "gpt-4o-mini"
 GPT_4O   = "gpt-4o"
+
+# Fallback cuando OpenAI falla (sin crédito, rate limit, caída): mismo cliente
+# SDK apuntando al router local mollo-aios (:8787), que ya tiene sus propias
+# credenciales (NVIDIA NIM, Codex flat-rate) y no depende del saldo de OpenAI.
+# "mcci-code" es el alias del router para NVIDIA NIM llama-3.3-70b (chat/code).
+router_client = OpenAI(base_url=f"{MOLLO_AIOS_URL}/v1", api_key=MOLLO_AIOS_KEY or "unset")
+ROUTER_MODEL = "mcci-code"
 
 
 def _cached_tokens(usage) -> int:
@@ -352,6 +359,34 @@ async def stream_chat_openai(
                 "model": model,
             }
             yield f"\x03{_json.dumps(usage)}"
+
+
+async def stream_chat_router(
+    pregunta: str,
+    doc_context: str = "",
+    memory_context: str = "",
+    business_context: str = "",
+    learnings_context: str = "",
+    topic_memory: str = "",
+    model: str = ROUTER_MODEL,
+    system_prompt: str | None = None,
+):
+    """Mismo protocolo que stream_chat_openai, pero vía el router mollo-aios
+    (NVIDIA NIM) — fallback cuando OpenAI no responde."""
+    import json as _json
+    stream = router_client.chat.completions.create(
+        model=model,
+        stream=True,
+        messages=_build_messages(
+            pregunta, doc_context, memory_context,
+            business_context, learnings_context, topic_memory, system_prompt,
+        ),
+    )
+    for chunk in stream:
+        delta = chunk.choices[0].delta.content if chunk.choices else None
+        if delta:
+            yield delta
+    yield f"\x03{_json.dumps({'input_tokens': 0, 'output_tokens': 0, 'cache_read_tokens': 0, 'model': model})}"
 
 
 # ── Agentic loop con herramientas ─────────────────────────────────────────────

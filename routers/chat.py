@@ -6,6 +6,7 @@ Endpoints de chat con routing inteligente de modelos:
   agente   → GPT-4o con tools (herramientas externas)
 """
 import asyncio
+import logging
 import time
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -14,19 +15,22 @@ from typing import Optional
 
 import json as _json
 
+logger = logging.getLogger(__name__)
+
 from embeddings import get_embedding
 from qdrant_service import search, tenant_collection, resolve_kb_collection, resolve_mem_collection
 from config import QDRANT_COLLECTION, QDRANT_MEMORY_COLLECTION
 from auth import quota_guard, record_request
 from claude_service import chat_with_rag, stream_chat_with_rag, run_agent, stream_agent, analyze_document
 from openai_brain import (
-    chat_openai, stream_chat_openai,
+    chat_openai,
     run_agent_openai, stream_agent_openai,
+    stream_chat_router,
     GPT_MINI, GPT_4O,
 )
 from gemini_brain import chat_gemini, stream_chat_gemini, GEMINI_FLASH_LITE
 from groq_brain import run_agent_groq, stream_agent_groq, chat_groq, stream_chat_groq, LLAMA_70B
-from codex_brain import run_codex, stream_codex
+from codex_brain import run_codex, stream_codex, stream_chat_codex
 from ollama_brain import chat_ollama, stream_chat_ollama, OLLAMA_CHAT_MODEL
 from memory_service import save_turn, save_learning, get_semantic_context, get_business_context, get_learnings_context
 from openai_service import extract_learning, classify_complexity, needs_tools
@@ -258,6 +262,30 @@ async def _respond(modo: str, pregunta: str, doc_context: str,
     return chat_with_rag(**kwargs)
 
 
+async def _stream_with_fallback(*streams):
+    """Consume streams en orden. Si uno falla antes de mandar su primer chunk
+    (cuota agotada, rate limit, caída), pasa al siguiente sin que el cliente
+    note nada. Si un stream ya mandó parte de la respuesta cuando falla, no
+    se reintenta con el siguiente (duplicaría/mezclaría texto) — se registra
+    y se corta ahí.
+    """
+    for i, stream in enumerate(streams):
+        is_last = i == len(streams) - 1
+        sent_any = False
+        try:
+            async for chunk in stream:
+                sent_any = True
+                yield chunk
+            return
+        except Exception as e:
+            if sent_any:
+                logger.warning("stream #%d falló a mitad de respuesta, no se reintenta: %s", i, e)
+                return
+            if is_last:
+                raise
+            logger.warning("stream #%d falló antes de responder (%s), probando el siguiente", i, e)
+
+
 async def _stream(modo: str, pregunta: str, doc_context: str,
                   memory_context: str, business_ctx: str,
                   learnings_ctx: str, topic_memory: str,
@@ -298,10 +326,17 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
             yield chunk
     elif modo == "simple":
         if tools_needed:
-            async for chunk in stream_agent_openai(**kwargs, model=GPT_MINI):
+            async for chunk in _stream_with_fallback(
+                stream_agent_openai(**kwargs, model=GPT_MINI),
+                stream_agent_groq(**kwargs, model=LLAMA_70B),
+            ):
                 yield chunk
         else:
-            async for chunk in stream_chat_openai(**kwargs, model=GPT_MINI):
+            async for chunk in _stream_with_fallback(
+                stream_chat_codex(**kwargs),
+                stream_chat_router(**kwargs),
+                stream_chat_groq(**kwargs, model=LLAMA_70B),
+            ):
                 yield chunk
     elif modo == "rapido":
         if tools_needed:
@@ -312,10 +347,17 @@ async def _stream(modo: str, pregunta: str, doc_context: str,
                 yield chunk
     elif modo == "medio":
         if tools_needed:
-            async for chunk in stream_agent_openai(**kwargs, model=GPT_4O):
+            async for chunk in _stream_with_fallback(
+                stream_agent_openai(**kwargs, model=GPT_4O),
+                stream_agent_groq(**kwargs, model=LLAMA_70B),
+            ):
                 yield chunk
         else:
-            async for chunk in stream_chat_openai(**kwargs, model=GPT_4O):
+            async for chunk in _stream_with_fallback(
+                stream_chat_codex(**kwargs),
+                stream_chat_router(**kwargs),
+                stream_chat_groq(**kwargs, model=LLAMA_70B),
+            ):
                 yield chunk
     else:  # complejo → Claude (agent si hay intent de tools, chat si no)
         if tools_needed:
