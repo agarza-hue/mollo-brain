@@ -41,11 +41,7 @@ class ContainmentError(Exception):
 # Strings literales que NUNCA deben salir a PUBLIC.
 # Edita ~/.mollo/containment_patterns.txt (una línea por patrón) para
 # extender sin tocar código.
-IDENTITY_PATTERNS: list[str] = [
-    # Tokens y secrets conocidos del stack actual
-    "f5f25870205298a361380ef583443947",  # HDHR token IPTV-Manager
-    "cfb93c64a7be933cfb268f479122575f",  # TMDb API key
-]
+IDENTITY_PATTERNS: list[str] = []
 
 # Patrones regex de secretos genéricos (proveedores comunes).
 SECRET_REGEXES: list[re.Pattern] = [
